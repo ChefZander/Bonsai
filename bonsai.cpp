@@ -324,7 +324,7 @@ void buildPV(std::vector<int>& out) {
 void printInfo(long long plyTotal, int plyMax, int iterationsCompleted,
                double safeElapsed, const std::vector<int>& pvLine) {
     int simPerSec = static_cast<int>(iterationsCompleted / safeElapsed);
-    float y = floor(((1.0f - (static_cast<float>(tree[0].value) / tree[0].visits)) - 0.5f) * 100.0f * 16.0f);
+    float y = floor(((1.0f - (static_cast<float>(tree[0].value) / tree[0].visits)) - 0.5f) * 100.0f * 20.0f);
 
     std::cout << "info depth " << (plyTotal / iterationsCompleted)
               << " seldepth " << plyMax
