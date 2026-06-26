@@ -1,0 +1,1 @@
+g++ -O3 -march=native bonsai.cpp -o build/bonsai && ./build/bonsai
