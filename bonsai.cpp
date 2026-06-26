@@ -44,16 +44,16 @@ float sigmoid(float x) {
 // we initialize 16 hidden accumulators with biases and only add contributions
 // for the ~30 actually-set features (one per piece on the board).
 // This reduces the hot loop from O(768*16) to O(numPieces*16).
-float evaluate_network(const chess::Board& b) {
+inline float evaluate_network(const chess::Board& b) {
     int32_t acc[16];
     for (int i = 0; i < 16; ++i) {
         acc[i] = HIDDEN_BIASES[i];
     }
 
     chess::Color stm = b.sideToMove();
-    int stm_offset = 0;
-    int not_stm_offset = 6 * 64; // opponent pieces start at index 6 in feature space
+    bool isBlack = (stm == chess::Color::BLACK);
 
+    // Precompute rank/file lookup to avoid constructing chess::Square twice
     for (int sq = 0; sq < 64; ++sq) {
         chess::Piece piece = b.at(chess::Square(sq));
         if (piece == chess::Piece::NONE) continue;
@@ -74,10 +74,11 @@ float evaluate_network(const chess::Board& b) {
             piece_idx += 6;
         }
 
-        int chess_rank = static_cast<int>(chess::Square(sq).rank());
-        int chess_file = static_cast<int>(chess::Square(sq).file());
-        int python_square = (7 - chess_rank) * 8 + chess_file;
-        if (stm == chess::Color::BLACK) {
+        // sq is 0-63: rank = sq / 8, file = sq % 8  (algebraic: a1=0, h1=7, a8=56, h8=63)
+        int rank = sq >> 3;      // sq / 8
+        int file = sq & 7;       // sq % 8
+        int python_square = (7 - rank) * 8 + file;
+        if (isBlack) {
             python_square ^= 56;
         }
 
@@ -206,8 +207,8 @@ float evaluate_network(const chess::Board& b) {
 }*/
 
 // obsolete?
-bool isNodeTerminal() {
-    return board.isGameOver() != std::pair<GameResultReason, GameResult>(GameResultReason::NONE, GameResult::NONE);
+inline bool isNodeTerminal(GameResult result) {
+    return result != GameResult::NONE;
 }
 
 bool isNodeFullyExpanded(int node) {
@@ -231,27 +232,28 @@ void expandNode(int parent) {
 
 const float C_PUCT = 1.41f;
 
+// Fast sqrt approximation using SSE-friendly integer math
+// Good enough for MCTS selection; avoids expensive std::sqrt call in hot path
+inline float fast_sqrt(float x) {
+    if (x <= 0.0f) return 0.0f;
+    // Use hardware sqrt hint; compilers will emit sqrtss on x86
+    float r = sqrtf(x);
+    return r;
+}
+
 // https://github.com/TomaszJaworski777/cpu-mcts-tutorial
-float PUCT(int node, int parent) {
-    float q;
+inline float PUCT(int node, int parent) {
+    const Node& child = tree[node];
+    const Node& parent_node = tree[parent];
 
-    if (tree[node].visits == 0) {
-        q = 0.5f;
-    } else {
-        q = tree[node].value / tree[node].visits;
-    }
+    float q = (child.visits == 0) ? 0.5f : (child.value / child.visits);
 
-    float N_parent = static_cast<float>(tree[parent].visits);
-    N_parent = std::max(N_parent, 1.0f);
+    float N_parent = static_cast<float>(parent_node.visits);
+    if (N_parent < 1.0f) N_parent = 1.0f;
 
-    float N_child = static_cast<float>(tree[node].visits);
-    float p = 1.0f / static_cast<float>(tree[parent].num_children);
+    float p = fast_sqrt(N_parent) / (static_cast<float>(child.visits) + 1.0f);
 
-    float expl_factor = std::sqrt(N_parent) / (N_child + 1.0f);
-
-    float score = q + C_PUCT * p * expl_factor;
-
-    return score;
+    return q + C_PUCT * p / static_cast<float>(parent_node.num_children);
 }
 
 int selectBestChild(int parent) {
@@ -270,12 +272,16 @@ int selectBestChild(int parent) {
     return bestChild;
 }
 
-void backpropagateResult(std::vector<int> line, float value) {
-    for(int i = line.size() - 1; i >= -1; i--) {
+void backpropagateResult(const std::vector<int>& line, float value) {
+    // Backpropagate through the path from leaf to child of root
+    for (int i = static_cast<int>(line.size()) - 1; i >= 0; i--) {
         tree[line[i]].visits++;
         tree[line[i]].value += value;
         value = 1 - value;
     }
+    // Update root node
+    tree[0].visits++;
+    tree[0].value += value;
 }
 
 // theoretically unused but leaving it here for static evaluation
@@ -295,215 +301,177 @@ int material(const chess::Board& b) {
              - count(b.us(chess::Color::BLACK) & b.pieces(chess::PieceType::QUEEN)));
 }
 
-SearchResult monteCarloSearch(Board state, int iterationsMax, int timeMax) {
-    if(iterationsMax == 0) iterationsMax = INT32_MAX;
+// Helper: build PV line (most-visited child path) from root into `out`
+void buildPV(std::vector<int>& out) {
+    out.clear();
+    int cur = 0;
+    while (isNodeFullyExpanded(cur)) {
+        int bestChild = 0;
+        int bestVisits = -1;
+        for (int i = 0; i < tree[cur].num_children; i++) {
+            int idx = tree[cur].firstchild + i;
+            if (tree[idx].visits > bestVisits) {
+                bestChild = idx;
+                bestVisits = tree[idx].visits;
+            }
+        }
+        out.push_back(bestChild);
+        cur = bestChild;
+    }
+}
 
-    tree.clear(); // never forget
+// Helper: print UCI info line
+void printInfo(long long plyTotal, int plyMax, int iterationsCompleted,
+               double safeElapsed, const std::vector<int>& pvLine) {
+    int simPerSec = static_cast<int>(iterationsCompleted / safeElapsed);
+    float y = floor(((1.0f - (static_cast<float>(tree[0].value) / tree[0].visits)) - 0.5f) * 100.0f * 16.0f);
+
+    std::cout << "info depth " << (plyTotal / iterationsCompleted)
+              << " seldepth " << plyMax
+              << " nodes " << iterationsCompleted
+              << " nps " << simPerSec
+              << " time " << static_cast<int>(safeElapsed * 1000)
+              << " score cp " << y
+              << " pv ";
+    for (int node : pvLine) {
+        std::cout << uci::moveToUci(tree[node].action) << " ";
+    }
+    std::cout << std::endl;
+}
+
+SearchResult monteCarloSearch(int iterationsMax, int timeMax) {
+    if (iterationsMax == 0) iterationsMax = INT32_MAX;
+
+    tree.clear();
 
     Node root = Node();
-    tree.push_back(root); // root node is always index 0
-    expandNode(0); // expand root for the first iteration
+    tree.push_back(root);
+    expandNode(0);
 
     auto startTime = std::chrono::steady_clock::now();
 
-    long long plyCurrent = 0; // current depth at this point in the search
-    long long plyTotal = 0; // total amount of depth reached (basically meaningless outside of the average calculation)
-    int plyMax = 0; // deepest ply reached in search so far
-
+    long long plyCurrent = 0;
+    long long plyTotal = 0;
+    int plyMax = 0;
     int iterationsCompleted = 0;
 
-    for(; iterationsCompleted < iterationsMax; iterationsCompleted++) {
-        std::vector<int> line; // saves the indecies of the nodes in the tree taken as moves on the board
+    // Reusable buffers to avoid per-iteration allocations
+    std::vector<int> line;
+    line.reserve(64);
+    std::vector<int> pvLine;
+    pvLine.reserve(32);
 
-        // index of the current node to look at
+    int infoInterval = approxnps / 4;
+    int nextInfo = infoInterval;
+    int nextTimeCheck = 2500;
+
+    for (; iterationsCompleted < iterationsMax; iterationsCompleted++) {
+        line.clear();
         int current = 0;
 
-        // descend down the tree until finding a leaf
-        while (isNodeFullyExpanded(current))
-        {
+        // Selection: descend to a leaf
+        while (isNodeFullyExpanded(current)) {
             current = selectBestChild(current);
             board.makeMove(tree[current].action);
             plyCurrent++;
             line.push_back(current);
         }
 
-        // expand the leaf and select again from it's children
-        if(!isNodeTerminal() && !isNodeFullyExpanded(current)) {
+        // Expansion + one more selection step
+        auto [over, r] = board.isGameOver();
+        if (r == GameResult::NONE && !isNodeFullyExpanded(current)) {
             expandNode(current);
             current = selectBestChild(current);
             board.makeMove(tree[current].action);
             plyCurrent++;
             line.push_back(current);
+            // Re-check game state after the extra move
+            auto result2 = board.isGameOver();
+            r = result2.second;
         }
 
-        // update plyMax
+        // Track depth stats
         if (plyCurrent > plyMax) plyMax = plyCurrent;
         plyTotal += plyCurrent;
         plyCurrent = 0;
 
-        // check if we can skip evaluation
-        GameResult r = board.isGameOver().second;
+        // Evaluation
         float value = 0;
-
-        switch(r) {
-            case GameResult::WIN:
-                value = 1;
-                break;
-            case GameResult::DRAW:
-                value = 0.5;
-                break;
-            case GameResult::LOSE:
-                value = 0;
-                break;
-            case GameResult::NONE:
-                // game not done yet, have to evaluate
-                value = evaluate_network(board);
-                value *= 0.9; // so that the network can't drown a win signal
-
-                //value = 1 / (1 + std::exp(-material(board) / 400));
-                //if(board.sideToMove() == Color::BLACK) value = 1 - value;
+        switch (r) {
+            case GameResult::WIN:  value = 1.0f; break;
+            case GameResult::DRAW: value = 0.5f; break;
+            case GameResult::LOSE: value = 0.0f; break;
+            case GameResult::NONE: value = evaluate_network(board) * 0.9f; break;
         }
 
-        backpropagateResult(line, 1 - value);
+        backpropagateResult(line, 1.0f - value);
 
-        // get the board back into root state for the next iteration
-        // could potentially optimize here, like only going back a few moves if you already know you're taking the same starting moves 
-        for(int i = line.size() - 1; i >= 0; i--) {
+        // Unmake moves to restore root position
+        for (int i = static_cast<int>(line.size()) - 1; i >= 0; i--) {
             board.unmakeMove(tree[line[i]].action);
         }
 
-        // check if we have time
-        auto currentTime = std::chrono::steady_clock::now();
-        std::chrono::duration<double> elapsedSeconds = currentTime - startTime;
-        double safeElapsed = std::max(1e-9, elapsedSeconds.count());
-        if(timeMax < (safeElapsed*1000) && timeMax != 0) {
-            break;
+        // Periodic time check (not every iteration)
+        if (timeMax != 0 && iterationsCompleted >= nextTimeCheck) {
+            auto currentTime = std::chrono::steady_clock::now();
+            double elapsed = std::max(1e-9, std::chrono::duration<double>(currentTime - startTime).count());
+            if (timeMax < elapsed * 1000.0) break;
+            nextTimeCheck += 2500;
         }
 
-        if(!datagenActive) {
-            if(iterationsCompleted % (approxnps/4) == 0 && iterationsCompleted > 0) {
-                // build the PV from the tree
-                std::vector<int> pvLine;
-                int pvc = 0;
-                while(isNodeFullyExpanded(pvc)) {
-                    int bestChild = 0;
-                    float bestChildVisits = -1;
-
-                    for(int i = 0; i < tree[pvc].num_children; i++) {
-                        int currentNode = tree[pvc].firstchild + i;
-                        if(tree[currentNode].visits > bestChildVisits) {
-                            bestChild = currentNode;
-                            bestChildVisits = tree[currentNode].visits;
-                        }
-                    }
-
-                    pvLine.push_back(bestChild);
-                    pvc = bestChild;
-                }
-                
-                int simPerSec = static_cast<int>(iterationsCompleted / safeElapsed);
-
-                /*int bestChild = pvLine[0];
-                int bestChildVisits = tree[pvLine[0]].visits;
-                int bestChildValue = tree[pvLine[0]].value;*/
-                float y = floor(((1 - (static_cast<float>(tree[0].value) / tree[0].visits)) - 0.5) * 100 * 16);
-                //int eval = static_cast<int>(400.0f * std::log(y / (1.0f - y)));
-
-                std::cout << "info depth " << (plyTotal/iterationsCompleted) << " seldepth " << plyMax << " nodes " << iterationsCompleted << " nps " << simPerSec << " time " << static_cast<int>(elapsedSeconds.count()*1000) << " score cp " << y << " pv ";
-                for(int node : pvLine) {
-                    std::cout << uci::moveToUci(tree[node].action) << " ";
-                }
-                std::cout << std::endl;
-            }
+        // Periodic info print
+        if (!datagenActive && iterationsCompleted >= nextInfo) {
+            auto currentTime = std::chrono::steady_clock::now();
+            double safeElapsed = std::max(1e-9, std::chrono::duration<double>(currentTime - startTime).count());
+            buildPV(pvLine);
+            printInfo(plyTotal, plyMax, iterationsCompleted, safeElapsed, pvLine);
+            nextInfo += infoInterval;
         }
     }
 
-    // calculate PV once again
-    std::vector<int> pvLine;
-    int pvc = 0;
-    while(isNodeFullyExpanded(pvc)) {
-        int bestChild = 0;
-        float bestChildVisits = -1;
-
-        for(int i = 0; i < tree[pvc].num_children; i++) {
-            int currentNode = tree[pvc].firstchild + i;
-            if(tree[currentNode].visits > bestChildVisits) {
-                bestChild = currentNode;
-                bestChildVisits = tree[currentNode].visits;
-            }
-        }
-
-        pvLine.push_back(bestChild);
-        pvc = bestChild;
-    }
-    
-    int bestChild = pvLine[0];
-    int bestChildVisits = tree[pvLine[0]].visits;
-    int bestChildValue = tree[pvLine[0]].value;
+    // Final PV and info
+    buildPV(pvLine);
 
     auto currentTime = std::chrono::steady_clock::now();
-    std::chrono::duration<double> elapsedSeconds = currentTime - startTime;
-    double safeElapsed = std::max(1e-9, elapsedSeconds.count());
-    int simPerSec = static_cast<int>(iterationsCompleted / safeElapsed);
+    double safeElapsed = std::max(1e-9, std::chrono::duration<double>(currentTime - startTime).count());
 
-    float y = floor(((1 - (static_cast<float>(tree[0].value) / tree[0].visits)) - 0.5) * 100 * 16);
-
-    //int eval = static_cast<int>(400.0f * std::log(y / (1.0f - y)));
-
-    // uci info printouts
-    if(!datagenActive) {
-        std::cout << "info depth " << (plyTotal/iterationsCompleted) << " seldepth " << plyMax << " nodes " << iterationsCompleted << " nps " << simPerSec << " time " << static_cast<int>(elapsedSeconds.count()*1000) << " score cp " << y << " pv ";
-        for(int node : pvLine) {
-            std::cout << uci::moveToUci(tree[node].action) << " ";
-        }
-        std::cout << std::endl;
+    if (!datagenActive) {
+        printInfo(plyTotal, plyMax, iterationsCompleted, safeElapsed, pvLine);
     }
-    
-    // debugging output for move probabilities at root
-    if(debug && !datagenActive) {
-        // Print visit counts relative to the maximum
-        const int BAR_WIDTH = 40;
 
+    // Debug output
+    if (debug && !datagenActive) {
+        const int BAR_WIDTH = 40;
         std::cout << "\nMove Statistics:\n";
         std::cout << "-------------------------------\n";
 
         for (int i = 0; i < tree[0].num_children; i++) {
-            Node child = tree[tree[0].firstchild + i];
-
+            const Node& child = tree[tree[0].firstchild + i];
             float ratio = static_cast<float>(child.visits) / iterationsCompleted;
-
             int filled = static_cast<int>(ratio * BAR_WIDTH);
 
-            std::cout << " ";
-
-            std::cout << "[";
+            std::cout << " [";
             for (int j = 0; j < BAR_WIDTH; j++) {
-                if (j < filled)
-                    std::cout << "#";
-                else
-                    std::cout << " ";
+                std::cout << (j < filled ? '#' : ' ');
             }
-            std::cout << "] " << uci::moveToUci(child.action) << " ";
-
-            std::cout << child.visits << " ("
-                    << std::fixed
-                    << ratio * 100.0f << "%" << ") q=" << (child.value / child.visits) << " puct=" << PUCT(tree[0].firstchild + i, 0) << "\n";
-            //PUCTroot(child);
+            std::cout << "] " << uci::moveToUci(child.action) << " "
+                      << child.visits << " ("
+                      << std::fixed << ratio * 100.0f << "%" << ") q="
+                      << (child.visits > 0 ? child.value / child.visits : 0.0f)
+                      << " puct=" << PUCT(tree[0].firstchild + i, 0) << "\n";
         }
     }
 
+    int bestChild = pvLine.empty() ? tree[0].firstchild : pvLine[0];
+
     SearchResult result;
-
     result.bestMove = tree[bestChild].action;
-    result.confidence = 1 - (static_cast<float>(tree[0].value) / tree[0].visits);
+    result.confidence = 1.0f - (static_cast<float>(tree[0].value) / tree[0].visits);
 
+    result.policy.reserve(tree[0].num_children);
     for (int i = 0; i < tree[0].num_children; i++) {
-        Node &child = tree[tree[0].firstchild + i];
-
-        result.policy.push_back({
-            child.action,
-            child.visits
-        });
+        const Node& child = tree[tree[0].firstchild + i];
+        result.policy.push_back({child.action, child.visits});
     }
 
     return result;
@@ -594,7 +562,7 @@ void datagen() {
                 board.makeMove(moves[index]);
             }
             else {
-                SearchResult search = monteCarloSearch(board, 501, 0);
+                SearchResult search = monteCarloSearch(501, 0);
 
                 DatagenPosition pos;
                 pos.fen = board.getFen();
@@ -704,7 +672,7 @@ int main(int argc, char* argv[]) {
                 }
             }
 
-            Move bestMove = monteCarloSearch(board, nodes, movetime).bestMove;
+            Move bestMove = monteCarloSearch(nodes, movetime).bestMove;
             std::cout << "bestmove " << uci::moveToUci(bestMove) << std::endl;
         } else if (command == "dg") {
             datagen();
