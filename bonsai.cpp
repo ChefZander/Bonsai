@@ -697,7 +697,7 @@ int main(int argc, char* argv[]) {
             std::cout << "Evaluation for this position: " << evaluate_network(fen_to_768(board.getFen())) << std::endl;
         } else if (command == "go") {
             // Set your default search limits if the GUI just sends "go"
-            int nodes = 3000000;
+            int nodes = 5000000;
             int movetime = 30000; 
 
             std::string token;
