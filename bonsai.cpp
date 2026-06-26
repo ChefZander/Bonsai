@@ -165,6 +165,7 @@ float evaluate_network(std::vector<float> features_768) {
     return sigmoid(raw_output_float);
 }*/
 
+// this sucks, need to get rid of this
 std::vector<float> fen_to_768(const std::string& fen) {
     std::vector<float> features(768, 0.0f);
     
@@ -209,7 +210,7 @@ std::vector<float> fen_to_768(const std::string& fen) {
     return features;
 }
 
-
+// obsolete?
 bool isNodeTerminal() {
     return board.isGameOver() != std::pair<GameResultReason, GameResult>(GameResultReason::NONE, GameResult::NONE);
 }
@@ -222,6 +223,7 @@ void expandNode(int parent) {
     Movelist moves;
     movegen::legalmoves(moves, board);
 
+    // appending at the end yields (idx + 1) as next index, which is size
     tree[parent].firstchild = tree.size();
     tree[parent].num_children = moves.size();
 
@@ -259,7 +261,7 @@ float PUCT(int node, int parent) {
 
 int selectBestChild(int parent) {
     int bestChild = tree[parent].firstchild;
-    float bestChildPUCT = -10000000;
+    float bestChildPUCT = -MAXFLOAT; // no MINFLOAT?
 
     for(int i = 0; i < tree[parent].num_children; i++) {
         float currentChildPUCT = PUCT(tree[parent].firstchild + i, parent);
@@ -281,6 +283,7 @@ void backpropagateResult(std::vector<int> line, float value) {
     }
 }
 
+// theoretically unused but leaving it here for static evaluation
 int material(const chess::Board& b) {
     auto count = [](auto bb) { return std::popcount(bb.getBits()); };   
 
@@ -303,22 +306,24 @@ SearchResult monteCarloSearch(Board state, int iterationsMax, int timeMax) {
     tree.clear(); // never forget
 
     Node root = Node();
-    tree.push_back(root); // idx 0
-    expandNode(0);
+    tree.push_back(root); // root node is always index 0
+    expandNode(0); // expand root for the first iteration
 
     auto startTime = std::chrono::steady_clock::now();
 
-    long long plyCurrent = 0;
-    long long plyTotal = 0;
-    int plyMax = 0;
+    long long plyCurrent = 0; // current depth at this point in the search
+    long long plyTotal = 0; // total amount of depth reached (basically meaningless outside of the average calculation)
+    int plyMax = 0; // deepest ply reached in search so far
 
     int iterationsCompleted = 0;
 
     for(; iterationsCompleted < iterationsMax; iterationsCompleted++) {
-        std::vector<int> line;
+        std::vector<int> line; // saves the indecies of the nodes in the tree taken as moves on the board
 
+        // index of the current node to look at
         int current = 0;
 
+        // descend down the tree until finding a leaf
         while (isNodeFullyExpanded(current))
         {
             current = selectBestChild(current);
@@ -327,6 +332,7 @@ SearchResult monteCarloSearch(Board state, int iterationsMax, int timeMax) {
             line.push_back(current);
         }
 
+        // expand the leaf and select again from it's children
         if(!isNodeTerminal() && !isNodeFullyExpanded(current)) {
             expandNode(current);
             current = selectBestChild(current);
@@ -335,10 +341,12 @@ SearchResult monteCarloSearch(Board state, int iterationsMax, int timeMax) {
             line.push_back(current);
         }
 
+        // update plyMax
         if (plyCurrent > plyMax) plyMax = plyCurrent;
         plyTotal += plyCurrent;
         plyCurrent = 0;
 
+        // check if we can skip evaluation
         GameResult r = board.isGameOver().second;
         float value = 0;
 
@@ -353,18 +361,23 @@ SearchResult monteCarloSearch(Board state, int iterationsMax, int timeMax) {
                 value = 0;
                 break;
             case GameResult::NONE:
+                // game not done yet, have to evaluate
                 value = evaluate_network(fen_to_768(board.getFen()));
                 value *= 0.9; // so that the network can't drown a win signal
+
                 //value = 1 / (1 + std::exp(-material(board) / 400));
                 //if(board.sideToMove() == Color::BLACK) value = 1 - value;
         }
 
         backpropagateResult(line, 1 - value);
 
+        // get the board back into root state for the next iteration
+        // could potentially optimize here, like only going back a few moves if you already know you're taking the same starting moves 
         for(int i = line.size() - 1; i >= 0; i--) {
             board.unmakeMove(tree[line[i]].action);
         }
 
+        // check if we have time
         auto currentTime = std::chrono::steady_clock::now();
         std::chrono::duration<double> elapsedSeconds = currentTime - startTime;
         double safeElapsed = std::max(1e-9, elapsedSeconds.count());
@@ -374,6 +387,7 @@ SearchResult monteCarloSearch(Board state, int iterationsMax, int timeMax) {
 
         if(!datagenActive) {
             if(iterationsCompleted % (approxnps/4) == 0 && iterationsCompleted > 0) {
+                // build the PV from the tree
                 std::vector<int> pvLine;
                 int pvc = 0;
                 while(isNodeFullyExpanded(pvc)) {
@@ -409,6 +423,7 @@ SearchResult monteCarloSearch(Board state, int iterationsMax, int timeMax) {
         }
     }
 
+    // calculate PV once again
     std::vector<int> pvLine;
     int pvc = 0;
     while(isNodeFullyExpanded(pvc)) {
@@ -440,6 +455,7 @@ SearchResult monteCarloSearch(Board state, int iterationsMax, int timeMax) {
 
     //int eval = static_cast<int>(400.0f * std::log(y / (1.0f - y)));
 
+    // uci info printouts
     if(!datagenActive) {
         std::cout << "info depth " << (plyTotal/iterationsCompleted) << " seldepth " << plyMax << " nodes " << iterationsCompleted << " nps " << simPerSec << " time " << static_cast<int>(elapsedSeconds.count()*1000) << " score cp " << y << " pv ";
         for(int node : pvLine) {
@@ -448,6 +464,7 @@ SearchResult monteCarloSearch(Board state, int iterationsMax, int timeMax) {
         std::cout << std::endl;
     }
     
+    // debugging output for move probabilities at root
     if(debug && !datagenActive) {
         // Print visit counts relative to the maximum
         const int BAR_WIDTH = 40;
@@ -497,6 +514,7 @@ SearchResult monteCarloSearch(Board state, int iterationsMax, int timeMax) {
     return result;
 }
 
+
 struct DatagenPosition {
     std::string fen;
     std::vector<std::pair<Move, int>> policy;
@@ -526,6 +544,7 @@ void writeGameToCSV(const std::string& filename,
 
         file << position.fen << ",";
 
+        // uncomment to save policy output as well, but this uses ~3x more data
         /*bool first = true;
         for (const auto& p : position.policy)
         {
@@ -588,6 +607,7 @@ void datagen() {
                 pos.sideToMove = board.sideToMove();
                 pos.confidence = search.confidence;
 
+                // TODO: only save quiet positions?
                 game.push_back(pos);
 
                 board.makeMove(search.bestMove);
@@ -598,7 +618,7 @@ void datagen() {
         // save that shish to a file
         auto [over, result] = board.isGameOver();
 
-        Color winner = Color::NONE;
+        Color winner = Color::NONE; // stays none if draw
 
         if (result == GameResult::LOSE)
         {
