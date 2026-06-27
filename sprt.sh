@@ -1,5 +1,5 @@
 cutechess-cli \
-  -engine name="net6-heuristics" cmd="./build/bonsai-heuristics" \
+  -engine name="net6-pruning" cmd="./build/bonsai-pruning" \
   -engine name="net6-captures" cmd="./build/bonsai-captures" \
   -each proto=uci st=0.1 timemargin=9999 \
   -openings file="./data/UHO_Lichess_4852_v1.epd" format=epd order=random \

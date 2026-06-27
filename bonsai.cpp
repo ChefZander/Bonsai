@@ -791,8 +791,8 @@ int main(int argc, char* argv[]) {
             std::cout << "Evaluation for this position: " << evaluate_network(board) << std::endl;
         } else if (command == "go") {
             // Set your default search limits if the GUI just sends "go"
-            int nodes = 5000000;
-            int movetime = 30000; 
+            int nodes = 0;
+            int movetime = 0; 
 
             std::string token;
             while (iss >> token) {
