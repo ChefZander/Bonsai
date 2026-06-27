@@ -6,6 +6,7 @@
 #include <fstream>
 #include <chrono>
 #include <algorithm>
+#include <queue>
 #include "include/chess.hpp"
 
 using namespace chess;
@@ -33,6 +34,17 @@ bool debug = false;
 bool datagenActive = false;
 
 int approxnps = 60000;
+
+const int DEFAULT_HASH_MIB = 128;
+int hashMib = DEFAULT_HASH_MIB;
+size_t hashLimitNodes = static_cast<size_t>(DEFAULT_HASH_MIB) * 1024 * 1024 / sizeof(Node);
+
+inline size_t computeHashLimitNodes(int mib) {
+    return static_cast<size_t>(mib) * 1024 * 1024 / sizeof(Node);
+}
+
+// Fraction of total nodes pruneTree() retains per call (~half).
+const float PRUNE_KEEP_FRACTION = 0.5f;
 
 #include "net/net6.hpp"
 
@@ -331,12 +343,19 @@ void buildPV(std::vector<int>& out) {
 void printInfo(long long plyTotal, int plyMax, int iterationsCompleted,
                double safeElapsed, const std::vector<int>& pvLine) {
     int simPerSec = static_cast<int>(iterationsCompleted / safeElapsed);
+    int hashfull = 0;
+    if (hashLimitNodes > 0) {
+        size_t used = tree.size();
+        if (used > hashLimitNodes) used = hashLimitNodes;
+        hashfull = static_cast<int>((used * 1000) / hashLimitNodes);
+    }
     float y = floor(((1.0f - (static_cast<float>(tree[0].value) / tree[0].visits)) - 0.5f) * 100.0f * 20.0f);
 
     std::cout << "info depth " << (plyTotal / iterationsCompleted)
               << " seldepth " << plyMax
               << " nodes " << iterationsCompleted
               << " nps " << simPerSec
+              << " hashfull " << hashfull
               << " time " << static_cast<int>(safeElapsed * 1000)
               << " score cp " << y
               << " pv ";
@@ -344,6 +363,88 @@ void printInfo(long long plyTotal, int plyMax, int iterationsCompleted,
         std::cout << uci::moveToUci(tree[node].action) << " ";
     }
     std::cout << std::endl;
+}
+
+void pruneTree() {
+    const size_t n = tree.size();
+    if (n < 1024) return; // not worth compacting tiny trees
+
+    size_t keepTarget = static_cast<size_t>(n * PRUNE_KEEP_FRACTION);
+    if (keepTarget < 1) keepTarget = 1;
+    if (keepTarget > n) keepTarget = n;
+
+    // --- Pass A: mark the top-`keepTarget` nodes by (visits desc, index asc) ---
+    // That set is ancestor-closed (see above), so it is a connected subtree
+    // rooted at node 0 and compacts cleanly.
+    std::vector<bool> kept(n, false);
+    {
+        std::vector<std::pair<int,int>> rank; // (visits, index)
+        rank.reserve(n);
+        for (size_t i = 0; i < n; i++)
+            rank.push_back({tree[i].visits, static_cast<int>(i)});
+        std::partial_sort(rank.begin(), rank.begin() + keepTarget, rank.end(),
+                          [](const std::pair<int,int>& a, const std::pair<int,int>& b) {
+                              if (a.first != b.first) return a.first > b.first;
+                              return a.second < b.second;
+                          });
+        for (size_t i = 0; i < keepTarget; i++) kept[rank[i].second] = true;
+        kept[0] = true; // root always retained (defensive)
+    } // `rank` freed before compaction to keep peak memory down
+
+    // --- Pass B: emit the kept subtree in BFS order ---
+    // BFS lets us write each kept node's kept children as one contiguous block
+    // (same layout expandNode() produces), so firstchild + num_children stay
+    // valid. Subtrees may land anywhere in the array -- that's fine, they are
+    // reached through firstchild, exactly like the organically grown tree.
+    size_t keptCount = 0;
+    for (size_t i = 0; i < n; i++) if (kept[i]) keptCount++;
+
+    std::vector<Node> newTree;
+    newTree.reserve(keptCount);
+    std::vector<int> oldToNew(n, -1);
+    std::vector<int> keptKids; // reused
+    std::queue<int> bfs;
+
+    oldToNew[0] = 0;
+    newTree.push_back(tree[0]);
+    bfs.push(0);
+
+    while (!bfs.empty()) {
+        int p = bfs.front(); bfs.pop();
+        int pNew = oldToNew[p];
+        const Node& pnode = tree[p];
+
+        keptKids.clear();
+        if (pnode.firstchild != 0) {
+            for (int i = 0; i < pnode.num_children; i++) {
+                int ci = pnode.firstchild + i;
+                if (kept[ci]) keptKids.push_back(ci);
+            }
+        }
+
+        if (keptKids.empty()) {
+            // No retained children: this node becomes a re-expandable leaf.
+            newTree[pNew].firstchild = 0;
+            newTree[pNew].num_children = 0;
+            continue;
+        }
+
+        int childBlockStart = static_cast<int>(newTree.size());
+        newTree[pNew].firstchild = childBlockStart;
+        newTree[pNew].num_children = static_cast<int>(keptKids.size());
+        for (int ci : keptKids) {
+            oldToNew[ci] = static_cast<int>(newTree.size());
+            newTree.push_back(tree[ci]); // firstchild fixed when ci is processed
+            bfs.push(ci);
+        }
+    }
+
+    if (debug && !datagenActive) {
+        std::cerr << "info string prune " << n << " -> " << newTree.size()
+                  << " nodes (hash limit " << hashLimitNodes << ")" << std::endl;
+    }
+
+    tree = std::move(newTree);
 }
 
 SearchResult monteCarloSearch(int iterationsMax, int timeMax) {
@@ -416,6 +517,11 @@ SearchResult monteCarloSearch(int iterationsMax, int timeMax) {
         // Unmake moves to restore root position
         for (int i = static_cast<int>(line.size()) - 1; i >= 0; i--) {
             board.unmakeMove(tree[line[i]].action);
+        }
+
+        // compact
+        if (tree.size() >= hashLimitNodes) {
+            pruneTree();
         }
 
         // Periodic time check (not every iteration)
@@ -654,11 +760,30 @@ int main(int argc, char* argv[]) {
         if (command == "uci") {
             std::cout << "id name Bonsai" << std::endl;
             std::cout << "id author Zander" << std::endl;
+            std::cout << "option name Hash type spin default 128 min 1 max 65536" << std::endl;
             std::cout << "uciok" << std::endl;
+        } else if (command == "debug") {
+            std::string arg;
+            iss >> arg;
+            if (arg == "on" || arg == "true" || arg == "1") {
+                debug = true;
+            } else if (arg == "off" || arg == "false" || arg == "0" || arg.empty()) {
+                debug = false;
+            }
         } else if (command == "isready") {
             std::cout << "readyok" << std::endl;
         } else if (command == "ucinewgame") {
             board.setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        } else if (command == "setoption") {
+            std::string token, name;
+            iss >> token;   // "name"
+            iss >> name;
+            iss >> token;   // "value"
+            if (name == "Hash") {
+                iss >> hashMib;
+                if (hashMib < 1) hashMib = 1;
+                hashLimitNodes = computeHashLimitNodes(hashMib);
+            }
         } else if (command == "position") {
             handlePosition(iss);
         } else if (command == "eval") {
