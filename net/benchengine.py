@@ -9,13 +9,13 @@ import random
 import time  # Added for tracking ETA
 
 # ==================== CONFIGURATION ====================
-TARGET_ENGINE_PATH = r"../neural-net4"
+TARGET_ENGINE_PATH = r"../build/neural"
 STOCKFISH_PATH = r"/usr/bin/stockfish"
 
 GAMES_PER_LEVEL = 16         # Number of games per Elo step (keep even for color balance)
 TIME_LIMIT_PER_MOVE = 1    # Seconds allowed per move
 NODE_LIMIT_PER_MOVE = 99999
-CONCURRENT_GAMES = 5         # Number of games to run simultaneously
+CONCURRENT_GAMES = 7         # Number of games to run simultaneously
 # =======================================================
 
 # Thread lock to prevent overlapping output lines in the terminal

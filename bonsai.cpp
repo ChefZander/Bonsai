@@ -562,7 +562,7 @@ void datagen() {
                 board.makeMove(moves[index]);
             }
             else {
-                SearchResult search = monteCarloSearch(501, 0);
+                SearchResult search = monteCarloSearch(1501, 0);
 
                 DatagenPosition pos;
                 pos.fen = board.getFen();
@@ -570,7 +570,6 @@ void datagen() {
                 pos.sideToMove = board.sideToMove();
                 pos.confidence = search.confidence;
 
-                // TODO: only save quiet positions?
                 game.push_back(pos);
 
                 board.makeMove(search.bestMove);
