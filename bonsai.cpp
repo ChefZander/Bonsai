@@ -33,7 +33,7 @@ bool datagenActive = false;
 
 int approxnps = 60000;
 
-#include "net/net5.hpp"
+#include "net/net6.hpp"
 
 float sigmoid(float x) {
     return 1.0f / (1.0f + std::exp(-x));

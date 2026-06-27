@@ -1,6 +1,6 @@
 cutechess-cli \
-  -engine name="Optimized SmallNet 5 Inference 2" cmd="./build/optimized-2" \
-  -engine name="Optimized SmallNet 5 Inference" cmd="./build/optimized-1" \
+  -engine name="net6" cmd="./build/bonsai-net6" \
+  -engine name="net5-2" cmd="./build/optimized-2" \
   -each proto=uci st=0.1 timemargin=9999 \
   -openings file="./data/UHO_Lichess_4852_v1.epd" format=epd order=random \
   -repeat \
