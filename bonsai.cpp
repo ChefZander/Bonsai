@@ -562,7 +562,7 @@ void datagen() {
                 board.makeMove(moves[index]);
             }
             else {
-                SearchResult search = monteCarloSearch(1501, 0);
+                SearchResult search = monteCarloSearch(2001, 0);
 
                 DatagenPosition pos;
                 pos.fen = board.getFen();
@@ -592,7 +592,7 @@ void datagen() {
 
         std::cout << "Game " << i << ": " << startingFen << " plies: " << ply << " winner: " << winner << std::endl;
 
-        writeGameToCSV("data/selfplay_2.csv", game, result, winner);
+        writeGameToCSV("data/selfplay_3.csv", game, result, winner);
         game.clear();
         i++;
     }
