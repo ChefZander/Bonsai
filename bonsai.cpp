@@ -16,6 +16,7 @@ struct Node
     int firstchild; int num_children;
     int visits = 0;
     float value = 0;
+    bool captureMove;
 };
 struct SearchResult {
     Move bestMove;
@@ -226,6 +227,7 @@ void expandNode(int parent) {
     for(Move m : moves) {
         Node child = Node();
         child.action = m;
+        child.captureMove = (board.at(m.to()) != Piece::NONE);
         tree.push_back(child);
     }
 }
@@ -252,6 +254,11 @@ inline float PUCT(int node, int parent) {
     if (N_parent < 1.0f) N_parent = 1.0f;
 
     float p = fast_sqrt(N_parent) / (static_cast<float>(child.visits) + 1.0f);
+
+    // increase policy for capture moves slightly to encourage exploration first
+    if(tree[node].captureMove) {
+        p += 0.1f;
+    }
 
     return q + C_PUCT * p / static_cast<float>(parent_node.num_children);
 }
