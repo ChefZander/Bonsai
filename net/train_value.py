@@ -116,7 +116,7 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using execution device: {device}")
 
-    csv_filename = "../data/selfplay_2.csv" 
+    csv_filename = "../data/selfplay_3.csv" 
     batch_size = 4096*2*2
     learning_rate = 0.001
     epochs = 15
@@ -169,7 +169,7 @@ def main():
 
     progress_bar.close()
 
-    model_save_path = "net6.pt"
+    model_save_path = "net7.pt"
     orig_model = model._orig_mod if hasattr(model, "_orig_mod") else model
     torch.save(orig_model.state_dict(), model_save_path)
     print(f"Training completed. Network saved safely to {model_save_path}")
