@@ -3,3 +3,4 @@ build/
 net/env/
 net/train_log.csv
 net/*.pt
+net/*.pth
