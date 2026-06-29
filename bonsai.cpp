@@ -440,7 +440,7 @@ void pruneTree() {
     }
 
     if (debug && !datagenActive) {
-        std::cerr << "info string prune " << n << " -> " << newTree.size()
+        std::cout << "info string prune " << n << " -> " << newTree.size()
                   << " nodes (hash limit " << hashLimitNodes << ")" << std::endl;
     }
 
