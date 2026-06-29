@@ -711,7 +711,7 @@ int main(int argc, char* argv[]) {
         if (command == "uci") {
             std::cout << "id name Bonsai" << std::endl;
             std::cout << "id author Zander" << std::endl;
-            std::cout << "option name Hash type spin default 128 min 1 max 65536" << std::endl;
+            std::cout << "option name Hash type spin default " << DEFAULT_HASH_MIB << " min 1 max 65536" << std::endl;
             std::cout << "uciok" << std::endl;
         } else if (command == "debug") {
             std::string arg;
