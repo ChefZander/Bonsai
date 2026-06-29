@@ -35,7 +35,7 @@ bool datagenActive = false;
 
 int approxnps = 60000;
 
-const int DEFAULT_HASH_MIB = 128;
+const int DEFAULT_HASH_MIB = 512;
 int hashMib = DEFAULT_HASH_MIB;
 size_t hashLimitNodes = static_cast<size_t>(DEFAULT_HASH_MIB) * 1024 * 1024 / sizeof(Node);
 
@@ -46,7 +46,7 @@ inline size_t computeHashLimitNodes(int mib) {
 // Fraction of total nodes pruneTree() retains per call (~half).
 const float PRUNE_KEEP_FRACTION = 0.5f;
 
-#include "net/net7-3.hpp"
+#include "net/net7-4.hpp"
 
 float sigmoid(float x) {
     return 1.0f / (1.0f + std::exp(-x));
