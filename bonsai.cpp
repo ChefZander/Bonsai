@@ -116,108 +116,64 @@ inline float evaluate_network(const chess::Board& b) {
     return sigmoid(raw_output_float);
 }
 
-// bignet
-/*float evaluate_network(const std::vector<float>& features_768) {
-    // Intermediate layer output buffers
-    int64_t hl0_outputs[256] = {0};
-    int64_t hl1_outputs[256] = {0};
-    int64_t hl2_outputs[256] = {0};
+inline float evaluate_network_24hl(const chess::Board& b) {
+    int32_t acc[24];
+    for (int i = 0; i < 24; ++i) {
+        acc[i] = HIDDEN_BIASES[i];
+    }
 
-    // --- LAYER 0: Input (768) -> HL0 (256) ---
-    // Output Scale: SCALE_FACTOR^1
-    for (int i = 0; i < 256; ++i) {
-        int64_t accumulation = HL0_BIASES[i]; 
-        for (int j = 0; j < 768; ++j) {
-            if (features_768[j] == 1.0f) { 
-                accumulation += HL0_WEIGHTS[i][j];
-            }
+    chess::Color stm = b.sideToMove();
+    bool isBlack = (stm == chess::Color::BLACK);
+
+    // Precompute rank/file lookup to avoid constructing chess::Square twice
+    for (int sq = 0; sq < 64; ++sq) {
+        chess::Piece piece = b.at(chess::Square(sq));
+        if (piece == chess::Piece::NONE) continue;
+
+        int type_idx;
+        switch (piece.type()) {
+            case PieceType(PieceType::PAWN):   type_idx = 0; break;
+            case PieceType(PieceType::KNIGHT): type_idx = 1; break;
+            case PieceType(PieceType::BISHOP): type_idx = 2; break;
+            case PieceType(PieceType::ROOK):   type_idx = 3; break;
+            case PieceType(PieceType::QUEEN):  type_idx = 4; break;
+            case PieceType(PieceType::KING):   type_idx = 5; break;
+            default: continue;
         }
-        hl0_outputs[i] = std::max(static_cast<int64_t>(0), accumulation); // ReLU
-    }
 
-    // --- LAYER 1: HL0 (256) -> HL1 (256) ---
-    // Output Scale: SCALE_FACTOR^2
-    for (int i = 0; i < 256; ++i) {
-        int64_t accumulation = HL1_BIASES[i];
-        for (int j = 0; j < 256; ++j) {
-            accumulation += hl0_outputs[j] * HL1_WEIGHTS[i][j];
+        int piece_idx = type_idx;
+        if (piece.color() != stm) {
+            piece_idx += 6;
         }
-        hl1_outputs[i] = std::max(static_cast<int64_t>(0), accumulation); // ReLU
-    }
 
-    // --- LAYER 2: HL1 (256) -> HL2 (256) ---
-    // Output Scale: SCALE_FACTOR^3
-    for (int i = 0; i < 256; ++i) {
-        int64_t accumulation = HL2_BIASES[i];
-        for (int j = 0; j < 256; ++j) {
-            accumulation += hl1_outputs[j] * HL2_WEIGHTS[i][j];
+        // sq is 0-63: rank = sq / 8, file = sq % 8  (algebraic: a1=0, h1=7, a8=56, h8=63)
+        int rank = sq >> 3;      // sq / 8
+        int file = sq & 7;       // sq % 8
+        int python_square = (7 - rank) * 8 + file;
+        if (isBlack) {
+            python_square ^= 56;
         }
-        hl2_outputs[i] = std::max(static_cast<int64_t>(0), accumulation); // ReLU
-    }
 
-    // --- LAYER 3: HL2 (256) -> Output (1) ---
-    // Output Scale: SCALE_FACTOR^4
-    int64_t output_accumulation = OUTPUT_BIAS;
-    for (int i = 0; i < 256; ++i) {
-        output_accumulation += hl2_outputs[i] * OUTPUT_WEIGHTS[i];
-    }
+        int feature_idx = piece_idx * 64 + python_square;
 
-    // --- DESCALING & ACTIVATION ---
-    // Calculate final scale divisor: SCALE_FACTOR^4
-    double final_scale = static_cast<double>(SCALE_FACTOR) * SCALE_FACTOR * SCALE_FACTOR * SCALE_FACTOR;
-    
-    // Convert back to floating point space
-    float raw_output_float = static_cast<float>(static_cast<double>(output_accumulation) / final_scale);
-    
-    return sigmoid(raw_output_float);
-}*/
-
-// sillynet
-/*float evaluate_network(const std::vector<float>& features_768) {
-    // 1. Create a zero-padded input buffer [12 channels][10 rows][10 cols]
-    // This removes the need for out-of-bounds branching inside the hot conv loops.
-    int8_t padded_input[12][10][10] = {{{0}}};
-    
-    // Copy and cast features to integer once to avoid slow float->int instructions later
-    for (int c = 0; c < 12; ++c) {
-        int channel_offset = c * 64;
-        for (int r = 0; r < 8; ++r) {
-            int row_offset = channel_offset + (r * 8);
-            for (int col = 0; col < 8; ++col) {
-                padded_input[c][r + 1][col + 1] = static_cast<int8_t>(features_768[row_offset + col]);
-            }
+        // Accumulate contribution of this single active feature into all 16 hidden neurons
+        for (int h = 0; h < 24; ++h) {
+            acc[h] += HIDDEN_WEIGHTS[h][feature_idx];
         }
     }
 
-    int32_t output_accumulation = FC_BIAS;
-
-    // 2. Perform Convolution, ReLU, and FC Accumulation in a tightly fused block
-    // Loops strictly track the sequential layout of weights for maximum cache locality
-    for (int r = 1; r <= 8; ++r) {
-        for (int col = 1; col <= 8; ++col) {
-            int32_t conv_out = CONV_BIAS;
-
-            for (int c = 0; c < 12; ++c) {
-                // Completely unrollable 3x3 kernel spatial iteration
-                for (int dr = 0; dr < 3; ++dr) {
-                    for (int dc = 0; dc < 3; ++dc) {
-                        conv_out += padded_input[c][r + dr - 1][col + dc - 1] * CONV_WEIGHTS[c][dr][dc];
-                    }
-                }
-            }
-
-            // Fused ReLU Activation & FC layer mapping
-            if (conv_out > 0) {
-                int fc_index = (r - 1) * 8 + (col - 1);
-                output_accumulation += conv_out * FC_WEIGHTS[fc_index];
-            }
+    // ReLU on hidden outputs, then accumulate into final output
+    int32_t output_accumulation = OUTPUT_BIAS;
+    for (int i = 0; i < 24; ++i) {
+        int32_t h = acc[i];
+        if (h > 0) {
+            output_accumulation += h * OUTPUT_WEIGHTS[i];
         }
     }
 
-    // 3. De-quantize and scale back down to a float representation for the final step
     float raw_output_float = static_cast<float>(output_accumulation) / SCALE_FACTOR_SQ;
     return sigmoid(raw_output_float);
-}*/
+}
 
 // obsolete?
 inline bool isNodeTerminal(GameResult result) {
