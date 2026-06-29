@@ -420,9 +420,9 @@ SearchResult monteCarloSearch(int iterationsMax, int timeMax) {
     std::vector<int> pvLine;
     pvLine.reserve(32);
 
-    int infoInterval = approxnps / 4;
+    int infoInterval = 100000;
     int nextInfo = infoInterval;
-    int nextTimeCheck = 2500;
+    int nextTimeCheck = 1000;
 
     for (; iterationsCompleted < iterationsMax; iterationsCompleted++) {
         line.clear();
@@ -572,7 +572,7 @@ void writeGameToCSV(const std::string& filename,
         file << position.fen << ",";
 
         // uncomment to save policy output as well, but this uses ~3x more data
-        bool first = true;
+        /*bool first = true;
         for (const auto& p : position.policy)
         {
             if (!first)
@@ -583,10 +583,10 @@ void writeGameToCSV(const std::string& filename,
             file << uci::moveToUci(p.first) // Move move
                  << ":"
                  << p.second; // int visits
-        }
+        }*/
 
-        file << "," << position.confidence << "\n";
-        //file << position.confidence << "\n";
+        //file << "," << position.confidence << "\n";
+        file << position.confidence << "\n";
     }
 }
 
@@ -614,6 +614,10 @@ void datagen() {
         // loop monte carlo until game ends
         std::vector<DatagenPosition> game;
         int ply = 0;
+
+        // --- START TIMER ---
+        auto startTime = std::chrono::high_resolution_clock::now();
+
         while (true) {
             Movelist moves;
             movegen::legalmoves(moves, board);
@@ -626,7 +630,7 @@ void datagen() {
                 board.makeMove(moves[index]);
             }
             else {
-                SearchResult search = monteCarloSearch(50001, 0);
+                SearchResult search = monteCarloSearch(1001, 0);
 
                 DatagenPosition pos;
                 pos.fen = board.getFen();
@@ -641,6 +645,13 @@ void datagen() {
             ply++;
         }
 
+        // --- END TIMER & CALCULATE SPEED ---
+        auto endTime = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed = endTime - startTime;
+        
+        // Prevent division by zero if a game ends instantly
+        double movesPerSec = (elapsed.count() > 0) ? (ply / elapsed.count()) : 0.0;
+
         // save that shish to a file
         auto [over, result] = board.isGameOver();
 
@@ -654,9 +665,14 @@ void datagen() {
                 : Color::WHITE;
         }
 
-        std::cout << "Game " << i << ": " << startingFen << " plies: " << ply << " winner: " << winner << std::endl;
+        // --- UPDATED PRINT LINE ---
+        std::cout << "Game " << i << ": " << startingFen 
+                  << " | plies: " << ply 
+                  << " | winner: " << winner 
+                  << " | speed: " << std::fixed << std::setprecision(2) << movesPerSec << " plies/s" 
+                  << std::endl;
 
-        writeGameToCSV("data/selfplay_policy_test.csv", game, result, winner);
+        writeGameToCSV("data/selfplay_4.csv", game, result, winner);
         game.clear();
         i++;
     }
