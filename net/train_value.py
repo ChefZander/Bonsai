@@ -118,7 +118,7 @@ def main():
 
     csv_filename = "../data/selfplay_3.csv" 
     batch_size = 4096*2*2
-    learning_rate = 0.005
+    learning_rate = 0.01
     epochs = 15
 
     dataset = ChessStreamingDataset(csv_filename, buffer_size=50000)
@@ -144,6 +144,13 @@ def main():
     criterion = nn.MSELoss() 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, 
+        mode='min', 
+        factor=0.5,      # Reduction modifier (multiplies LR by this when stalling)
+        patience=2       # How many stagnant epochs to wait before dropping LR
+    )
+
     model.train()
     print("Beginning training loop...")
     
@@ -153,6 +160,9 @@ def main():
 
     with open("train_log.csv", "w") as h:
         for epoch in range(epochs):
+            running_loss = 0.0
+            steps_in_epoch = 0
+
             for batch_idx, (inputs, targets) in enumerate(train_loader):
                 inputs, targets = inputs.to(device), targets.to(device)
 
@@ -167,9 +177,15 @@ def main():
                 h.write(f"{loss.item()}\n")
                 progress_bar.set_postfix(epoch=f"{epoch+1}/{epochs}", loss=f"{loss.item():.5f}")
 
+                running_loss += loss.item()
+                steps_in_epoch += 1
+            
+            if steps_in_epoch > 0:
+                scheduler.step(running_loss / steps_in_epoch)
+
     progress_bar.close()
 
-    model_save_path = "net7-2.pt"
+    model_save_path = "net7-4.pt"
     orig_model = model._orig_mod if hasattr(model, "_orig_mod") else model
     torch.save(orig_model.state_dict(), model_save_path)
     print(f"Training completed. Network saved safely to {model_save_path}")
