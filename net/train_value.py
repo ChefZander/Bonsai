@@ -100,9 +100,9 @@ class ChessStreamingDataset(IterableDataset):
 class ChessValueNet(nn.Module):
     def __init__(self):
         super(ChessValueNet, self).__init__()
-        self.hidden_layer = nn.Linear(768, 16)
+        self.hidden_layer = nn.Linear(768, 24)
         self.relu = nn.ReLU()
-        self.output_layer = nn.Linear(16, 1)
+        self.output_layer = nn.Linear(24, 1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -118,7 +118,7 @@ def main():
 
     csv_filename = "../data/selfplay_3.csv" 
     batch_size = 4096*2*2
-    learning_rate = 0.05
+    learning_rate = 0.001
     epochs = 15
 
     dataset = ChessStreamingDataset(csv_filename, buffer_size=50000)
@@ -169,7 +169,7 @@ def main():
 
     progress_bar.close()
 
-    model_save_path = "net7-5.pt"
+    model_save_path = "24hl1.pt"
     orig_model = model._orig_mod if hasattr(model, "_orig_mod") else model
     torch.save(orig_model.state_dict(), model_save_path)
     print(f"Training completed. Network saved safely to {model_save_path}")
