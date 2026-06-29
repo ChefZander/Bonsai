@@ -46,18 +46,13 @@ inline size_t computeHashLimitNodes(int mib) {
 // Fraction of total nodes pruneTree() retains per call (~half).
 const float PRUNE_KEEP_FRACTION = 0.5f;
 
-#include "net/net7-4.hpp"
+#include "net/24hl1.hpp"
 
 float sigmoid(float x) {
     return 1.0f / (1.0f + std::exp(-x));
 }
 
-// SmallNet inference using accumulators
-// Instead of building a full 768-feature vector and scanning all 768 x 16 weights,
-// we initialize 16 hidden accumulators with biases and only add contributions
-// for the ~30 actually-set features (one per piece on the board).
-// This reduces the hot loop from O(768*16) to O(numPieces*16).
-inline float evaluate_network(const chess::Board& b) {
+inline float evaluate_network_16hl(const chess::Board& b) {
     int32_t acc[16];
     for (int i = 0; i < 16; ++i) {
         acc[i] = HIDDEN_BIASES[i];
@@ -465,7 +460,7 @@ SearchResult monteCarloSearch(int iterationsMax, int timeMax) {
             case GameResult::WIN:  value = 1.0f; break;
             case GameResult::DRAW: value = 0.5f; break;
             case GameResult::LOSE: value = 0.0f; break;
-            case GameResult::NONE: value = evaluate_network(board) * 0.9f; break;
+            case GameResult::NONE: value = evaluate_network_24hl(board) * 0.9f; break;
         }
 
         backpropagateResult(line, 1.0f - value);
@@ -744,7 +739,7 @@ int main(int argc, char* argv[]) {
             handlePosition(iss);
         } else if (command == "eval") {
             std::cout << "Evaluation for this position: " << material(board) << std::endl;
-            std::cout << "Evaluation for this position: " << evaluate_network(board) << std::endl;
+            //std::cout << "Evaluation for this position: " << evaluate_network(board) << std::endl;
         } else if (command == "go") {
             // Set your default search limits if the GUI just sends "go"
             int nodes = 0;
