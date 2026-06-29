@@ -170,6 +170,65 @@ inline float evaluate_network_24hl(const chess::Board& b) {
     return sigmoid(raw_output_float);
 }
 
+inline float evaluate_network_64hl(const chess::Board& b) {
+    int32_t acc[64];
+    for (int i = 0; i < 64; ++i) {
+        acc[i] = HIDDEN_BIASES[i];
+    }
+
+    chess::Color stm = b.sideToMove();
+    bool isBlack = (stm == chess::Color::BLACK);
+
+    // Precompute rank/file lookup to avoid constructing chess::Square twice
+    for (int sq = 0; sq < 64; ++sq) {
+        chess::Piece piece = b.at(chess::Square(sq));
+        if (piece == chess::Piece::NONE) continue;
+
+        int type_idx;
+        switch (piece.type()) {
+            case PieceType(PieceType::PAWN):   type_idx = 0; break;
+            case PieceType(PieceType::KNIGHT): type_idx = 1; break;
+            case PieceType(PieceType::BISHOP): type_idx = 2; break;
+            case PieceType(PieceType::ROOK):   type_idx = 3; break;
+            case PieceType(PieceType::QUEEN):  type_idx = 4; break;
+            case PieceType(PieceType::KING):   type_idx = 5; break;
+            default: continue;
+        }
+
+        int piece_idx = type_idx;
+        if (piece.color() != stm) {
+            piece_idx += 6;
+        }
+
+        // sq is 0-63: rank = sq / 8, file = sq % 8  (algebraic: a1=0, h1=7, a8=56, h8=63)
+        int rank = sq >> 3;      // sq / 8
+        int file = sq & 7;       // sq % 8
+        int python_square = (7 - rank) * 8 + file;
+        if (isBlack) {
+            python_square ^= 56;
+        }
+
+        int feature_idx = piece_idx * 64 + python_square;
+
+        // Accumulate contribution of this single active feature into all 16 hidden neurons
+        for (int h = 0; h < 64; ++h) {
+            acc[h] += HIDDEN_WEIGHTS[h][feature_idx];
+        }
+    }
+
+    // ReLU on hidden outputs, then accumulate into final output
+    int32_t output_accumulation = OUTPUT_BIAS;
+    for (int i = 0; i < 64; ++i) {
+        int32_t h = acc[i];
+        if (h > 0) {
+            output_accumulation += h * OUTPUT_WEIGHTS[i];
+        }
+    }
+
+    float raw_output_float = static_cast<float>(output_accumulation) / SCALE_FACTOR_SQ;
+    return sigmoid(raw_output_float);
+}
+
 // obsolete?
 inline bool isNodeTerminal(GameResult result) {
     return result != GameResult::NONE;
