@@ -1,1 +1,1 @@
-g++ -O3 -march=native bonsai.cpp -o build/bonsai && ./build/bonsai
+g++ -O3 -march=native -flto -ffast-math bonsai.cpp -o build/bonsai && ./build/bonsai
