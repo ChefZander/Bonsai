@@ -2,7 +2,7 @@ import os
 import torch
 import numpy as np
 
-def export_to_hpp(model_path="chess_value_net.pt", output_path="chess_net.hpp", scale=64):
+def export_to_hpp(model_path="chess_value_net.pt", output_path="chess_net.hpp", scale=64, hidden_layer=16):
     if not os.path.exists(model_path):
         print(f"Error: Could not find '{model_path}'. Please ensure training is complete.")
         return
@@ -12,9 +12,9 @@ def export_to_hpp(model_path="chess_value_net.pt", output_path="chess_net.hpp", 
     state_dict = torch.load(model_path, map_location=torch.device('cpu'))
 
     # Extract weights as numpy arrays
-    w1 = state_dict['hidden_layer.weight'].numpy()  # Shape: (24, 768)
-    b1 = state_dict['hidden_layer.bias'].numpy()    # Shape: (24,)
-    w2 = state_dict['output_layer.weight'].numpy()  # Shape: (1, 24)
+    w1 = state_dict['hidden_layer.weight'].numpy()  # Shape: (hidden_layer, 768)
+    b1 = state_dict['hidden_layer.bias'].numpy()    # Shape: (hidden_layer,)
+    w2 = state_dict['output_layer.weight'].numpy()  # Shape: (1, hidden_layer)
     b2 = state_dict['output_layer.bias'].numpy()    # Shape: (1,)
 
     # Quantize weights to integers
@@ -48,18 +48,18 @@ def export_to_hpp(model_path="chess_value_net.pt", output_path="chess_net.hpp", 
 const int SCALE_FACTOR = {scale};
 const int SCALE_FACTOR_SQ = {scale * scale};
 
-// Hidden Layer Weights: Shape [24][768] (out_features x in_features)
-const int16_t HIDDEN_WEIGHTS[24][768] = {{
+// Hidden Layer Weights: Shape [{hidden_layer}][768] (out_features x in_features)
+const int16_t HIDDEN_WEIGHTS[{hidden_layer}][768] = {{
 {format_2d(w1_int)}
 }};
 
-// Hidden Layer Biases: Shape [24]
-const int16_t HIDDEN_BIASES[24] = {{
+// Hidden Layer Biases: Shape [{hidden_layer}]
+const int16_t HIDDEN_BIASES[{hidden_layer}] = {{
     {format_1d(b1_int)}
 }};
 
-// Output Layer Weights: Shape [24] (Flattened out_features x in_features)
-const int16_t OUTPUT_WEIGHTS[24] = {{
+// Output Layer Weights: Shape [{hidden_layer}] (Flattened out_features x in_features)
+const int16_t OUTPUT_WEIGHTS[{hidden_layer}] = {{
     {format_1d(w2_int[0])}
 }};
 
@@ -77,4 +77,4 @@ const int32_t OUTPUT_BIAS = {b2_int[0]};
 
 if __name__ == "__main__":
     # You can change scale=1 if you strictly want raw non-scaled rounding
-    export_to_hpp(model_path="24hl1.pt", output_path="24hl1.hpp", scale=64)
+    export_to_hpp(model_path="24hl1.pt", output_path="24hl1.hpp", scale=64, hidden_layer=64)
