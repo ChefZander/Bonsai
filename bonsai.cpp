@@ -789,7 +789,7 @@ void datagen() {
                 board.makeMove(moves[index]);
             }
             else {
-                SearchResult search = monteCarloSearch(1001, 0);
+                SearchResult search = monteCarloSearch(500 + rand() % 1000, 0);
 
                 DatagenPosition pos;
                 pos.fen = board.getFen();
@@ -811,27 +811,13 @@ void datagen() {
         // Prevent division by zero if a game ends instantly
         double movesPerSec = (elapsed.count() > 0) ? (ply / elapsed.count()) : 0.0;
 
-        // save that shish to a file
-        auto [over, result] = board.isGameOver();
-
-        Color winner = Color::NONE; // stays none if draw
-
-        if (result == GameResult::LOSE)
-        {
-            // sideToMove is checkmated, so opposite side won
-            winner = (board.sideToMove() == Color::WHITE)
-                ? Color::BLACK
-                : Color::WHITE;
-        }
-
         // --- UPDATED PRINT LINE ---
         std::cout << "Game " << i << ": " << startingFen 
                   << " | plies: " << ply 
-                  << " | winner: " << winner 
                   << " | speed: " << std::fixed << std::setprecision(2) << movesPerSec << " plies/s" 
                   << std::endl;
 
-        writeGameToBinary("data/selfplay.bin", game);
+        writeGameToBinary("data/selfplay4.bin", game);
         game.clear();
         i++;
     }
