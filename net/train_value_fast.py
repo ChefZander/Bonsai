@@ -72,9 +72,9 @@ class ChessStreamingDataset(IterableDataset):
 class ChessValueNet(nn.Module):
     def __init__(self):
         super(ChessValueNet, self).__init__()
-        self.hidden_layer = nn.Linear(768, 64)
+        self.hidden_layer = nn.Linear(768, 32)
         self.relu = nn.ReLU()
-        self.output_layer = nn.Linear(64, 1)
+        self.output_layer = nn.Linear(32, 1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -87,6 +87,8 @@ class ChessValueNet(nn.Module):
 def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using execution device: {device}")
+
+    torch.set_float32_matmul_precision('high')
 
     bin_filename = "../data/selfplay.bin" 
     batch_size = 4096 * 2  # 8192 (Left untouched)
@@ -143,7 +145,7 @@ def main():
 
     progress_bar.close()
 
-    model_save_path = "64hl2.pt"
+    model_save_path = "32hl1.pt"
     orig_model = model._orig_mod if hasattr(model, "_orig_mod") else model
     torch.save(orig_model.state_dict(), model_save_path)
     print(f"Training completed. Network saved safely to {model_save_path}")
