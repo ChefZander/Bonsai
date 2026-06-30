@@ -278,11 +278,12 @@ inline float PUCT(int node, int parent) {
     float p = fast_sqrt(N_parent) / (static_cast<float>(child.visits) + 1.0f);
 
     // increase policy for capture moves slightly to encourage exploration first
-    if(tree[node].captureMove) {
+    // TODO: this value is arbitrary, either tune or throw out
+    /*if(tree[node].captureMove) {
         p += 0.1f;
-    }
+    }*/
 
-    return q + C_PUCT * p / static_cast<float>(parent_node.num_children);
+    return q + C_PUCT * p;
 }
 
 int selectBestChild(int parent) {
@@ -519,7 +520,9 @@ SearchResult monteCarloSearch(int iterationsMax, int timeMax) {
             case GameResult::WIN:  value = 1.0f; break;
             case GameResult::DRAW: value = 0.5f; break;
             case GameResult::LOSE: value = 0.0f; break;
-            case GameResult::NONE: value = evaluate_network_24hl(board) * 0.9f; break;
+
+            // removed * 0.9f, either tune or throw out, is probably bad for eval
+            case GameResult::NONE: value = evaluate_network_24hl(board); break;
         }
 
         backpropagateResult(line, 1.0f - value);
