@@ -630,6 +630,13 @@ struct DatagenPosition {
     float confidence;
 };
 
+#pragma pack(push, 1)
+struct PositionRecord {
+    uint64_t bitboards[12]; // 96 bytes: 768-bit one-hot encoding
+    float confidence;       // 4 bytes: MCTS search evaluation
+};
+#pragma pack(pop) // Total size: Exactly 100 bytes per position
+
 void writeGameToCSV(const std::string& filename,
                     const std::vector<DatagenPosition>& game,
                     GameResult result,
@@ -669,6 +676,77 @@ void writeGameToCSV(const std::string& filename,
         //file << "," << position.confidence << "\n";
         file << position.confidence << "\n";
     }
+}
+
+void writeGameToBinary(const std::string& filename,
+                       const std::vector<DatagenPosition>& game)
+{
+    std::ofstream file(filename, std::ios::binary | std::ios::app);
+    if (!file.is_open()) return;
+
+    std::vector<PositionRecord> records;
+    records.reserve(game.size());
+
+    for (const auto& position : game)
+    {
+        PositionRecord record;
+        record.confidence = static_cast<float>(position.confidence);
+        std::memset(record.bitboards, 0, sizeof(record.bitboards));
+
+        bool isWhite = (position.sideToMove == Color::WHITE);
+        int rank = 7;
+        int fileIdx = 0;
+
+        for (char c : position.fen)
+        {
+            if (c == ' ') break;
+            
+            if (c == '/') {
+                rank--;
+                fileIdx = 0;
+            }
+            else if (std::isdigit(c)) {
+                fileIdx += c - '0';
+            }
+            else {
+                int pIdx = -1;
+                // Bake PIECE_MAP_W vs PIECE_MAP_B logic directly into the parser
+                if (isWhite) {
+                    switch (c) {
+                        case 'P': pIdx = 0;  break; case 'N': pIdx = 1;  break;
+                        case 'B': pIdx = 2;  break; case 'R': pIdx = 3;  break;
+                        case 'Q': pIdx = 4;  break; case 'K': pIdx = 5;  break;
+                        case 'p': pIdx = 6;  break; case 'n': pIdx = 7;  break;
+                        case 'b': pIdx = 8;  break; case 'r': pIdx = 9;  break;
+                        case 'q': pIdx = 10; break; case 'k': pIdx = 11; break;
+                    }
+                } else {
+                    switch (c) {
+                        case 'p': pIdx = 0;  break; case 'n': pIdx = 1;  break;
+                        case 'b': pIdx = 2;  break; case 'r': pIdx = 3;  break;
+                        case 'q': pIdx = 4;  break; case 'k': pIdx = 5;  break;
+                        case 'P': pIdx = 6;  break; case 'N': pIdx = 7;  break;
+                        case 'B': pIdx = 8;  break; case 'R': pIdx = 9;  break;
+                        case 'Q': pIdx = 10; break; case 'K': pIdx = 11; break;
+                    }
+                }
+
+                if (pIdx != -1) {
+                    int square = rank * 8 + fileIdx;
+                    // Flip the board vertically for Black's perspective (square ^ 56)
+                    if (!isWhite) {
+                        square ^= 56;
+                    }
+                    
+                    record.bitboards[pIdx] |= (1ULL << square);
+                    fileIdx++;
+                }
+            }
+        }
+        records.push_back(record);
+    }
+
+    file.write(reinterpret_cast<const char*>(records.data()), records.size() * sizeof(PositionRecord));
 }
 
 void datagen() {
@@ -753,7 +831,7 @@ void datagen() {
                   << " | speed: " << std::fixed << std::setprecision(2) << movesPerSec << " plies/s" 
                   << std::endl;
 
-        writeGameToCSV("data/selfplay_4.csv", game, result, winner);
+        writeGameToBinary("data/selfplay.bin", game);
         game.clear();
         i++;
     }
