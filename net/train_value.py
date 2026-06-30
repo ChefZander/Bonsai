@@ -53,9 +53,8 @@ class ChessStreamingDataset(IterableDataset):
         fen = parts[0]
         target = float(parts[1].strip())
         
-        feature_vector = fen_to_768(fen)
         return (
-            feature_vector,
+            fen_to_768(fen),
             torch.tensor([target], dtype=torch.float32)
         )
 
@@ -117,9 +116,9 @@ def main():
     print(f"Using execution device: {device}")
 
     csv_filename = "../data/selfplay_4.csv" 
-    batch_size = 4096*2*2
+    batch_size = 4096
     learning_rate = 0.001
-    epochs = 5
+    epochs = 15
 
     dataset = ChessStreamingDataset(csv_filename, buffer_size=50000)
 
@@ -144,6 +143,10 @@ def main():
     criterion = nn.MSELoss() 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, T_max=epochs, eta_min=1e-6
+    )
+
     model.train()
     print("Beginning training loop...")
     
@@ -161,11 +164,17 @@ def main():
 
                 optimizer.zero_grad()
                 loss.backward()
+
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                
                 optimizer.step()
 
                 progress_bar.update(1)
-                h.write(f"{loss.item()}\n")
-                progress_bar.set_postfix(epoch=f"{epoch+1}/{epochs}", loss=f"{loss.item():.5f}")
+                if batch_idx % 8 == 0:
+                    h.write(f"{loss.item()}\n")
+                    progress_bar.set_postfix(epoch=f"{epoch+1}/{epochs}", loss=f"{loss.item():.5f}")
+            
+            scheduler.step()
 
     progress_bar.close()
 
