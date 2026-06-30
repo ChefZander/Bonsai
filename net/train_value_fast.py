@@ -91,8 +91,8 @@ def main():
     torch.set_float32_matmul_precision('high')
 
     bin_filename = "../data/selfplay.bin" 
-    batch_size = 4096 * 2  # 8192 (Left untouched)
-    learning_rate = 0.001  # (Left untouched)
+    batch_size = 1024 *2 *2 # 8192 (Left untouched)
+    learning_rate = 0.0001  # (Left untouched)
     epochs = 15            # (Left untouched)
 
     # Pass the batch size directly to the dataset
@@ -127,21 +127,25 @@ def main():
 
     with open("train_log.csv", "w") as h:
         for epoch in range(epochs):
-            for batch_idx, (inputs, targets) in enumerate(train_loader):
-                inputs, targets = inputs.to(device), targets.to(device)
+            try:
+                for batch_idx, (inputs, targets) in enumerate(train_loader):
+                        inputs, targets = inputs.to(device), targets.to(device)
 
-                outputs = model(inputs)
-                loss = criterion(outputs, targets)
+                        outputs = model(inputs)
+                        loss = criterion(outputs, targets)
 
-                optimizer.zero_grad()
-                loss.backward()
-                
-                optimizer.step()
+                        optimizer.zero_grad()
+                        loss.backward()
+                        
+                        optimizer.step()
 
-                progress_bar.update(1)
-                if batch_idx % 8 == 0:
-                    h.write(f"{loss.item()}\n")
-                    progress_bar.set_postfix(epoch=f"{epoch+1}/{epochs}", loss=f"{loss.item():.5f}")
+                        progress_bar.update(1)
+                        if batch_idx % 8 == 0:
+                            h.write(f"{loss.item()}\n")
+                            progress_bar.set_postfix(epoch=f"{epoch+1}/{epochs}", loss=f"{loss.item():.5f}", speed=f"{round((progress_bar.format_dict.get('rate', 1) * batch_size) / 1000)} kpos/s")
+            except KeyboardInterrupt:
+                print("Stopping training...")
+                break
 
     progress_bar.close()
 
