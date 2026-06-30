@@ -115,8 +115,8 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using execution device: {device}")
 
-    csv_filename = "../data/selfplay_4.csv" 
-    batch_size = 4096
+    csv_filename = "../data/selfplay_4_fixed3.csv" 
+    batch_size = 4096*2
     learning_rate = 0.001
     epochs = 15
 
@@ -143,10 +143,6 @@ def main():
     criterion = nn.MSELoss() 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, T_max=epochs, eta_min=1e-6
-    )
-
     model.train()
     print("Beginning training loop...")
     
@@ -164,8 +160,6 @@ def main():
 
                 optimizer.zero_grad()
                 loss.backward()
-
-                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 
                 optimizer.step()
 
@@ -173,8 +167,6 @@ def main():
                 if batch_idx % 8 == 0:
                     h.write(f"{loss.item()}\n")
                     progress_bar.set_postfix(epoch=f"{epoch+1}/{epochs}", loss=f"{loss.item():.5f}")
-            
-            scheduler.step()
 
     progress_bar.close()
 

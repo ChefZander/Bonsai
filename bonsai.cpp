@@ -7,6 +7,7 @@
 #include <chrono>
 #include <algorithm>
 #include <queue>
+#include <immintrin.h>
 #include "include/chess.hpp"
 
 using namespace chess;
@@ -46,7 +47,7 @@ inline size_t computeHashLimitNodes(int mib) {
 // Fraction of total nodes pruneTree() retains per call (~half).
 const float PRUNE_KEEP_FRACTION = 0.5f;
 
-#include "net/24hl1.hpp"
+#include "net/64hl1.hpp"
 
 float sigmoid(float x) {
     return 1.0f / (1.0f + std::exp(-x));
@@ -265,6 +266,30 @@ inline float fast_sqrt(float x) {
     return r;
 }
 
+inline float fast_sqrt_hint(float x) {
+    if (x <= 0.0f) return 0.0f;
+    #if defined(__SSE2__)
+    __m128 v = _mm_set_ss(x);
+    __m128 r = _mm_rsqrt_ss(v); // r ~ 1/sqrt(x)
+    
+    // Newton-Raphson refinement for sqrt(x):
+    // result = 0.5 * (x * r) * (3.0 - x * r * r)
+    __m128 x_r = _mm_mul_ss(v, r);
+    __m128 x_r_r = _mm_mul_ss(x_r, r);
+    __m128 three = _mm_set_ss(3.0f);
+    __m128 half = _mm_set_ss(0.5f);
+    
+    __m128 term = _mm_sub_ss(three, x_r_r);
+    __m128 refined = _mm_mul_ss(half, _mm_mul_ss(x_r, term));
+    
+    float result;
+    _mm_store_ss(&result, refined);
+    return result;
+    #else
+    return sqrtf(x);
+    #endif
+}
+
 // https://github.com/TomaszJaworski777/cpu-mcts-tutorial
 inline float PUCT(int node, int parent) {
     const Node& child = tree[node];
@@ -275,13 +300,7 @@ inline float PUCT(int node, int parent) {
     float N_parent = static_cast<float>(parent_node.visits);
     if (N_parent < 1.0f) N_parent = 1.0f;
 
-    float p = fast_sqrt(N_parent) / (static_cast<float>(child.visits) + 1.0f);
-
-    // increase policy for capture moves slightly to encourage exploration first
-    // TODO: this value is arbitrary, either tune or throw out
-    /*if(tree[node].captureMove) {
-        p += 0.1f;
-    }*/
+    float p = fast_sqrt_hint(N_parent) / (static_cast<float>(child.visits) + 1.0f);
 
     return q + C_PUCT * p;
 }
@@ -522,7 +541,7 @@ SearchResult monteCarloSearch(int iterationsMax, int timeMax) {
             case GameResult::LOSE: value = 0.0f; break;
 
             // removed * 0.9f, either tune or throw out, is probably bad for eval
-            case GameResult::NONE: value = evaluate_network_24hl(board); break;
+            case GameResult::NONE: value = evaluate_network_64hl(board); break;
         }
 
         backpropagateResult(line, 1.0f - value);
