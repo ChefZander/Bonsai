@@ -427,10 +427,10 @@ SearchResult monteCarloSearch(int iterationsMax, int timeMax) {
             case GameResult::LOSE: value = 0.0f; break;
 
             // removed * 0.9f, either tune or throw out, is probably bad for eval
-            //case GameResult::NONE: value = evaluate_network_32hl(board); break;
+            case GameResult::NONE: value = evaluate_network_16hl(board); break;
 
             // fallback
-            case GameResult::NONE: value = 1.0 / (1.0 + std::exp(-static_cast<double>(material(board)) / 400.0)); break;
+            //case GameResult::NONE: value = 1.0 / (1.0 + std::exp(-static_cast<double>(material(board)) / 400.0)); break;
         }
 
         backpropagateResult(line, 1.0f - value);
@@ -800,10 +800,22 @@ void handlePosition(std::istringstream& ss) {
     }
 }
 
+void benchAndQuit() {
+    board.setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+    SearchResult result = monteCarloSearch(10000, 0);
+    int bench = result.policy[0].second + result.policy[1].second;
+    std::cout << "Bench: " << bench << std::endl;
+    exit(0);
+}
+
 int main(int argc, char* argv[]) {
     std::string line;
     board = Board();
     board.setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+
+    if(argc == 2) {
+        benchAndQuit();
+    }
 
     while (std::getline(std::cin, line)) {
         std::istringstream iss(line);
@@ -882,6 +894,8 @@ int main(int argc, char* argv[]) {
             std::cout << "bestmove " << uci::moveToUci(bestMove) << std::endl;
         } else if (command == "dg") {
             datagen();
+        } else if (command == "bench") {
+            benchAndQuit();
         } else if (command == "quit") {
             break;
         }

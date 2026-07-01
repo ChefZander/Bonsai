@@ -1,1 +1,1 @@
-g++ -O3 -march=native -std=c++20 -flto -ffast-math -funroll-loops bonsai.cpp -o build/bonsai && ./build/bonsai
+g++ -O3 -march=native -std=c++20 -flto -ffast-math -funroll-loops bonsai.cpp -o build/bonsai && ./build/bonsai bench && ./build/bonsai
