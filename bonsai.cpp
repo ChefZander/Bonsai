@@ -47,15 +47,15 @@ inline size_t computeHashLimitNodes(int mib) {
 // Fraction of total nodes pruneTree() retains per call (~half).
 const float PRUNE_KEEP_FRACTION = 0.5f;
 
-//#include "net/iteration1.hpp"
+#include "net/iteration1.hpp"
 
 float sigmoid(float x) {
     return 1.0f / (1.0f + std::exp(-x));
 }
 
-/*inline float evaluate_network_32hl(const chess::Board& b) {
-    int32_t acc[32];
-    for (int i = 0; i < 32; ++i) {
+inline float evaluate_network_16hl(const chess::Board& b) {
+    int32_t acc[16];
+    for (int i = 0; i < 16; ++i) {
         acc[i] = HIDDEN_BIASES[i];
     }
 
@@ -94,7 +94,7 @@ float sigmoid(float x) {
         int feature_idx = piece_idx * 64 + python_square;
 
         // Accumulate contribution of this single active feature into all 16 hidden neurons
-        for (int h = 0; h < 32; ++h) {
+        for (int h = 0; h < 16; ++h) {
             acc[h] += HIDDEN_WEIGHTS[h][feature_idx];
         }
     }
@@ -103,7 +103,7 @@ float sigmoid(float x) {
     constexpr int32_t CLAMP_LIMIT = 255; 
     int32_t output_accumulation = OUTPUT_BIAS;
 
-    for (int i = 0; i < 32; ++i) {
+    for (int i = 0; i < 16; ++i) {
         int32_t h = acc[i];
         
         // Branchless clamp to [0, CLAMP_LIMIT]
@@ -115,7 +115,7 @@ float sigmoid(float x) {
 
     float raw_output_float = static_cast<float>(output_accumulation) / SCALE_FACTOR_SQ;
     return sigmoid(raw_output_float);
-}*/
+}
 
 // obsolete?
 inline bool isNodeTerminal(GameResult result) {

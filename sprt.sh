@@ -1,7 +1,7 @@
 cutechess-cli \
-  -engine name="32hl2" cmd="./build/bonsai-32hl2" \
-  -engine name="64hl1" cmd="./build/bonsai-64hl1" \
-  -each proto=uci st=0.1 timemargin=9999 \
+  -engine name="keep90" cmd="./build/bonsai-pgo-90" \
+  -engine name="keep50" cmd="./build/bonsai-pgo-50" \
+  -each proto=uci st=5 timemargin=9999 \
   -openings file="./data/UHO_Lichess_4852_v1.epd" format=epd order=random \
   -repeat \
   -sprt elo0=0 elo1=5 alpha=0.05 beta=0.05 \
