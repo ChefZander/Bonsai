@@ -804,7 +804,9 @@ void benchAndQuit() {
     board.setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
     SearchResult result = monteCarloSearch(10000, 0);
     int bench = result.policy[0].second + result.policy[1].second;
+    int bench2 = result.policy[2].second + result.policy[3].second;
     std::cout << "Bench: " << bench << std::endl;
+    std::cout << bench << " nodes " << bench2 << " nps" << std::endl;
     exit(0);
 }
 
