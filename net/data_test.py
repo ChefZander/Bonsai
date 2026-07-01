@@ -3,8 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # 1. Define your file path and chunk size
-bin_file_path = '../data/selfplay2.bin'  # Path to your binary file
-chunk_size = 25000
+bin_file_path = '../data/combined.bin'  # Path to your binary file
+chunk_size = 100000
 
 # 2. Define the binary struct layout matching your C++ PositionRecord.
 # Standard alignment: float (4 bytes) + 4 bytes padding + 12 uint64s (96 bytes) = 104 bytes.

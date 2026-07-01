@@ -72,9 +72,9 @@ class ChessStreamingDataset(IterableDataset):
 class ChessValueNet(nn.Module):
     def __init__(self):
         super(ChessValueNet, self).__init__()
-        self.hidden_layer = nn.Linear(768, 32)
+        self.hidden_layer = nn.Linear(768, 16)
         self.relu = nn.ReLU()
-        self.output_layer = nn.Linear(32, 1)
+        self.output_layer = nn.Linear(16, 1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
@@ -90,9 +90,9 @@ def main():
 
     torch.set_float32_matmul_precision('high')
 
-    bin_filename = "../data/selfplay.bin" 
+    bin_filename = "../data/material_1501.bin" 
     batch_size = 1024 *2 *2 # 8192 (Left untouched)
-    learning_rate = 0.0001  # (Left untouched)
+    learning_rate = 0.001  # (Left untouched)
     epochs = 15            # (Left untouched)
 
     # Pass the batch size directly to the dataset
@@ -119,6 +119,17 @@ def main():
     criterion = nn.MSELoss() 
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
+    # Calculate your exact total steps
+    total_steps = 330000 // batch_size
+
+    # T_max is the total number of steps to reach eta_min
+    # eta_min is the lowest you want the LR to go (e.g., 1e-5 or 1e-6)
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer, 
+        T_max=total_steps, 
+        eta_min=1e-5
+    )
+
     model.train()
     print("Beginning training loop...")
     
@@ -138,18 +149,25 @@ def main():
                         loss.backward()
                         
                         optimizer.step()
+                        scheduler.step()
 
                         progress_bar.update(1)
-                        if batch_idx % 8 == 0:
+                        if batch_idx % 64 == 0:
+                            current_lr = optimizer.param_groups[0]['lr']
                             h.write(f"{loss.item()}\n")
-                            progress_bar.set_postfix(epoch=f"{epoch+1}/{epochs}", loss=f"{loss.item():.5f}", speed=f"{round((progress_bar.format_dict.get('rate', 1) * batch_size) / 1000)} kpos/s")
+                            progress_bar.set_postfix(
+                            epoch=f"{epoch+1}/{epochs}", 
+                            loss=f"{loss.item():.5f}", 
+                            lr=f"{current_lr:.6f}",
+                            speed=f"{round((progress_bar.format_dict.get('rate', 1) * batch_size) / 1000)} kpos/s"
+                        )
             except KeyboardInterrupt:
                 print("Stopping training...")
                 break
 
     progress_bar.close()
 
-    model_save_path = "32hl1.pt"
+    model_save_path = "16hl1.pt"
     orig_model = model._orig_mod if hasattr(model, "_orig_mod") else model
     torch.save(orig_model.state_dict(), model_save_path)
     print(f"Training completed. Network saved safely to {model_save_path}")
