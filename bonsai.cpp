@@ -616,8 +616,10 @@ void writeGameToBinary(const std::string& filename,
 }
 
 // viriformat
+// spec: https://github.com/cosmobobak/viriformat
+
 #pragma pack(push, 1)
-struct PackedBoard {
+struct ViriformatBoard {
     uint64_t occupied = 0;       // 8 bytes: Bitmask of occupied squares
     uint8_t pieces[16] = {0};    // 16 bytes: 32 packed 4-bit piece entries
     uint8_t stm_ep = 64;         // 1 byte: MSB = side to move, Lower 7 bits = EP square
@@ -628,6 +630,202 @@ struct PackedBoard {
     uint8_t padding = 0;         // 1 byte: Memory alignment padding
 };
 #pragma pack(pop) // Total size: Exactly 32 bytes
+
+void writeGameToViriformat(const std::string& filename,
+                           const std::vector<DatagenPosition>& game,
+                           const Color& winner)
+{
+    if (game.empty()) return; // no moves happened
+
+    // stream
+    std::ofstream file(filename, std::ios::binary | std::ios::app);
+    if (!file.is_open()) return;
+
+    ViriformatBoard packed_board;
+    
+    // parse fen
+    std::stringstream ss(game[0].fen);
+    std::string pieces_str, stm_str, castling_str, ep_str, halfmove_str, fullmove_str;
+    ss >> pieces_str >> stm_str >> castling_str >> ep_str >> halfmove_str >> fullmove_str;
+
+    // Reconstruct initial position
+    std::vector<char> board_state(64, ' ');
+    int rank = 7;
+    int fileIdx = 0;
+    for (char c : pieces_str) {
+        if (c == '/') {
+            rank--;
+            fileIdx = 0;
+        } else if (std::isdigit(c)) {
+            fileIdx += c - '0';
+        } else {
+            board_state[rank * 8 + fileIdx] = c;
+            fileIdx++;
+        }
+    }
+
+    // Set occupied bitboard
+    for (int s = 0; s < 64; ++s) {
+        if (board_state[s] != ' ') {
+            packed_board.occupied |= (1ULL << s);
+        }
+    }
+
+    // Pack piece entries into array
+    int piece_count = 0;
+    for (int s = 0; s < 64; ++s) {
+        if (board_state[s] != ' ') {
+            char c = board_state[s];
+            bool is_black = std::islower(c);
+            char type_char = std::tolower(c);
+            
+            uint8_t type = 0;
+            if (type_char == 'p')      type = 0;
+            else if (type_char == 'n') type = 1;
+            else if (type_char == 'b') type = 2;
+            else if (type_char == 'r') {
+                type = 3; // Default Rook
+                // Check castling strings to upgrade active rooks to Unmoved Rooks (Type 6)
+                if (!is_black) {
+                    if (s == 7 && castling_str.find('K') != std::string::npos) type = 6;
+                    else if (s == 0 && castling_str.find('Q') != std::string::npos) type = 6;
+                } else {
+                    if (s == 63 && castling_str.find('k') != std::string::npos) type = 6;
+                    else if (s == 56 && castling_str.find('q') != std::string::npos) type = 6;
+                }
+            }
+            else if (type_char == 'q') type = 4;
+            else if (type_char == 'k') type = 5;
+
+            uint8_t piece_val = type;
+            if (is_black) piece_val |= 0x08; // Set MSB bit for Black
+
+            // Store two 4-bit entries per byte
+            int byte_idx = piece_count / 2;
+            if (piece_count % 2 == 0) {
+                packed_board.pieces[byte_idx] |= (piece_val & 0x0F);
+            } else {
+                packed_board.pieces[byte_idx] |= ((piece_val & 0x0F) << 4);
+            }
+            piece_count++;
+        }
+    }
+
+    // Pack Side-to-move and En-passant field
+    uint8_t stm_ep = 64; 
+    if (!ep_str.empty() && ep_str != "-") {
+        stm_ep = (ep_str[1] - '1') * 8 + (ep_str[0] - 'a');
+    }
+    if (stm_str == "b") {
+        stm_ep |= 0x80; // Set MSB if Black to move
+    }
+    packed_board.stm_ep = stm_ep;
+
+    // Parsing clocks with safe defaults
+    packed_board.halfmove = halfmove_str.empty() ? 0 : std::stoi(halfmove_str);
+    packed_board.fullmove = fullmove_str.empty() ? 1 : std::stoi(fullmove_str);
+    packed_board.score = 0; 
+
+    // Game final result mapping
+    if (winner == Color::WHITE)      packed_board.result = 2;
+    else if (winner == Color::BLACK) packed_board.result = 0;
+    else                             packed_board.result = 1;
+
+    file.write(reinterpret_cast<const char*>(&packed_board), sizeof(ViriformatBoard));
+
+    auto fill_flat_board = [](const std::string& fen, std::vector<char>& b) {
+        std::stringstream fss(fen);
+        std::string p_str; fss >> p_str;
+        int r = 7, f = 0;
+        for (char c : p_str) {
+            if (c == '/') { r--; f = 0; }
+            else if (std::isdigit(c)) { f += c - '0'; }
+            else { b[r * 8 + f] = c; f++; }
+        }
+    };
+
+    for (size_t i = 0; i < game.size() - 1; ++i) {
+        std::vector<char> b1(64, ' '), b2(64, ' ');
+        fill_flat_board(game[i].fen, b1);
+        fill_flat_board(game[i + 1].fen, b2);
+
+        bool is_white_turn = (game[i].sideToMove == Color::WHITE);
+        int from_sq = -1, to_sq = -1;
+        int move_type = 0;   // 0: Normal, 1: EP, 2: Castling, 3: Promotion
+        int promo_piece = 0; // 0: N, 1: B, 2: R, 3: Q
+
+        // king takes rook castling
+        if (is_white_turn) {
+            if (b1[4] == 'K' && b2[6] == 'K')      { from_sq = 4;  to_sq = 7;  move_type = 2; }
+            else if (b1[4] == 'K' && b2[2] == 'K') { from_sq = 4;  to_sq = 0;  move_type = 2; }
+        } else {
+            if (b1[60] == 'k' && b2[62] == 'k')    { from_sq = 60; to_sq = 63; move_type = 2; }
+            else if (b1[60] == 'k' && b2[58] == 'k') { from_sq = 60; to_sq = 56; move_type = 2; }
+        }
+
+        // If not a castling move, parse square deltas
+        if (move_type == 0) {
+            std::vector<int> changed;
+            for (int s = 0; s < 64; ++s) {
+                if (b1[s] != b2[s]) changed.push_back(s);
+            }
+
+            // Identify the active moving piece's starting square
+            for (int s : changed) {
+                if (b1[s] != ' ' && (std::isupper(b1[s]) == is_white_turn)) {
+                    from_sq = s;
+                }
+            }
+
+            if (changed.size() == 3) { 
+                // En-Passant Capture
+                move_type = 1;
+                for (int s : changed) {
+                    if (s != from_sq && b1[s] == ' ' && (b2[s] == 'P' || b2[s] == 'p')) {
+                        to_sq = s;
+                    }
+                }
+            } else {
+                // Normal move, simple capture, or promotion
+                for (int s : changed) {
+                    if (s != from_sq) to_sq = s;
+                }
+                // Check for Pawn Promotion
+                if (std::tolower(b1[from_sq]) == 'p' && (to_sq / 8 == 7 || to_sq / 8 == 0)) {
+                    move_type = 3;
+                    char p_char = std::tolower(b2[to_sq]);
+                    if (p_char == 'n')      promo_piece = 0;
+                    else if (p_char == 'b') promo_piece = 1;
+                    else if (p_char == 'r') promo_piece = 2;
+                    else if (p_char == 'q') promo_piece = 3;
+                }
+            }
+        }
+
+        // Pack values into the Move structure
+        uint16_t packed_move = 0;
+        packed_move |= (from_sq & 0x3F);
+        packed_move |= ((to_sq & 0x3F) << 6);
+        packed_move |= ((promo_piece & 0x03) << 12);
+        packed_move |= ((move_type & 0x03) << 14);
+
+        // Convert confidence float to viriformat White-Relative Centipawn Score (i16)
+        float gameResVal = 0.5f; 
+        if (winner == Color::WHITE)      gameResVal = (game[i].sideToMove == Color::WHITE) ? 1.0f : 0.0f;
+        else if (winner == Color::BLACK) gameResVal = (game[i].sideToMove == Color::BLACK) ? 1.0f : 0.0f;
+
+        float blended = (0.7f * game[i].confidence) + (0.3f * gameResVal);
+
+        // Linear scale (Should I be using Scaled Sigmoid Here?)
+        int16_t move_score = static_cast<int16_t>((blended - 0.5f) * 2000.0f);
+
+        file.write(reinterpret_cast<const char*>(&packed_move), sizeof(uint16_t));
+        file.write(reinterpret_cast<const char*>(&move_score), sizeof(int16_t));
+    }
+
+    uint32_t terminator = 0;
+    file.write(reinterpret_cast<const char*>(&terminator), sizeof(uint32_t));
+}
 
 void datagen() {
     datagenActive = true;
@@ -739,7 +937,7 @@ void datagen() {
                   << " | total plies: " << allPlies
                   << std::endl;
 
-        writeGameToBinary("data/iteration1.bin", game, winner);
+        writeGameToViriformat("data/test.vf", game, winner);
         game.clear();
         i++;
     }
