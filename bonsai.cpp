@@ -47,7 +47,7 @@ inline size_t computeHashLimitNodes(int mib) {
 }
 
 // Fraction of total nodes pruneTree() retains per call (~half).
-const float PRUNE_KEEP_FRACTION = 0.5f;
+const float PRUNE_KEEP_FRACTION = 0.3f;
 
 #include "net/iteration1.hpp"
 
