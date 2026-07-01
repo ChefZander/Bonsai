@@ -801,7 +801,6 @@ void handlePosition(std::istringstream& ss) {
 }
 
 int main(int argc, char* argv[]) {
-
     std::string line;
     board = Board();
     board.setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
@@ -844,9 +843,10 @@ int main(int argc, char* argv[]) {
             std::cout << "Evaluation for this position: " << material(board) << std::endl;
             //std::cout << "Evaluation for this position: " << evaluate_network(board) << std::endl;
         } else if (command == "go") {
-            // Set your default search limits if the GUI just sends "go"
             int nodes = 0;
             int movetime = 0; 
+            int wtime = 0, btime = 0;
+            int winc = 0, binc = 0;
 
             std::string token;
             while (iss >> token) {
@@ -854,6 +854,27 @@ int main(int argc, char* argv[]) {
                     iss >> nodes;
                 } else if (token == "movetime") {
                     iss >> movetime;
+                } else if (token == "wtime") {
+                    iss >> wtime;
+                } else if (token == "btime") {
+                    iss >> btime;
+                } else if (token == "winc") {
+                    iss >> winc;
+                } else if (token == "binc") {
+                    iss >> binc;
+                }
+            }
+
+            // Calculate time management if explicit movetime wasn't provided
+            if (movetime == 0) {
+                if (board.sideToMove() == Color::WHITE) {
+                    if (wtime > 0) {
+                        movetime = (wtime / 20) + winc;
+                    }
+                } else {
+                    if (btime > 0) {
+                        movetime = (btime / 20) + binc;
+                    }
                 }
             }
 
