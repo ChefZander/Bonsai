@@ -429,10 +429,10 @@ SearchResult monteCarloSearch(int iterationsMax, int timeMax) {
             case GameResult::LOSE: value = 0.0f; break;
 
             // removed * 0.9f, either tune or throw out, is probably bad for eval
-            case GameResult::NONE: value = evaluate_network_16hl(board); break;
+            //case GameResult::NONE: value = evaluate_network_16hl(board); break;
 
             // fallback
-            //case GameResult::NONE: value = 1.0 / (1.0 + std::exp(-static_cast<double>(material(board)) / 400.0)); break;
+            case GameResult::NONE: value = 1.0 / (1.0 + std::exp(-static_cast<double>(material(board)) / 400.0)); break;
         }
 
         backpropagateResult(line, 1.0f - value);
