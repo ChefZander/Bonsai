@@ -531,46 +531,7 @@ struct PositionRecord {
 };
 #pragma pack(pop) // Total size: Exactly 100 bytes per position
 
-void writeGameToCSV(const std::string& filename,
-                    const std::vector<DatagenPosition>& game,
-                    GameResult result,
-                    Color winner)
-{
-    std::ofstream file(filename, std::ios::app);
-
-    for (const auto& position : game)
-    {
-        int target;
-
-        if (result == GameResult::DRAW)
-        {
-            target = 0;
-        }
-        else
-        {
-            target = (position.sideToMove == winner) ? 1 : -1;
-        }
-
-        file << position.fen << ",";
-
-        // uncomment to save policy output as well, but this uses ~3x more data
-        /*bool first = true;
-        for (const auto& p : position.policy)
-        {
-            if (!first)
-                file << ";";
-
-            first = false;
-
-            file << uci::moveToUci(p.first) // Move move
-                 << ":"
-                 << p.second; // int visits
-        }*/
-
-        //file << "," << position.confidence << "\n";
-        file << position.confidence << "\n";
-    }
-}
+// custom binary trickery
 
 void writeGameToBinary(const std::string& filename,
                        const std::vector<DatagenPosition>& game,
@@ -653,6 +614,20 @@ void writeGameToBinary(const std::string& filename,
 
     file.write(reinterpret_cast<const char*>(records.data()), records.size() * sizeof(PositionRecord));
 }
+
+// viriformat
+#pragma pack(push, 1)
+struct PackedBoard {
+    uint64_t occupied = 0;       // 8 bytes: Bitmask of occupied squares
+    uint8_t pieces[16] = {0};    // 16 bytes: 32 packed 4-bit piece entries
+    uint8_t stm_ep = 64;         // 1 byte: MSB = side to move, Lower 7 bits = EP square
+    uint8_t halfmove = 0;        // 1 byte: Halfmove clock
+    uint16_t fullmove = 1;       // 2 bytes: Fullmove counter
+    int16_t score = 0;           // 2 bytes: Root position evaluation
+    uint8_t result = 1;          // 1 byte: 0 = Black Win, 1 = Draw, 2 = White Win
+    uint8_t padding = 0;         // 1 byte: Memory alignment padding
+};
+#pragma pack(pop) // Total size: Exactly 32 bytes
 
 void datagen() {
     datagenActive = true;
