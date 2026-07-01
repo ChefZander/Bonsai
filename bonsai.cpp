@@ -570,7 +570,8 @@ void writeGameToCSV(const std::string& filename,
 }
 
 void writeGameToBinary(const std::string& filename,
-                       const std::vector<DatagenPosition>& game)
+                       const std::vector<DatagenPosition>& game,
+                       const Color& winner)
 {
     std::ofstream file(filename, std::ios::binary | std::ios::app);
     if (!file.is_open()) return;
@@ -581,7 +582,17 @@ void writeGameToBinary(const std::string& filename,
     for (const auto& position : game)
     {
         PositionRecord record;
-        record.confidence = static_cast<float>(position.confidence);
+
+        float gameResult = 0.5f; // Default to a draw
+        if (winner == Color::WHITE) {
+            gameResult = (position.sideToMove == Color::WHITE) ? 1.0f : 0.0f;
+        } else if (winner == Color::BLACK) {
+            gameResult = (position.sideToMove == Color::BLACK) ? 1.0f : 0.0f;
+        }
+        
+        // Apply lambda blend formula
+        record.confidence = (0.7f * position.confidence) + (0.3f * gameResult);
+
         std::memset(record.bitboards, 0, sizeof(record.bitboards));
 
         bool isWhite = (position.sideToMove == Color::WHITE);
@@ -727,6 +738,18 @@ void datagen() {
         // --- END TIMER & CALCULATE SPEED ---
         auto endTime = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed = endTime - startTime;
+
+        auto [over, result] = board.isGameOver();
+
+        Color winner = Color::NONE; // stays none if draw
+
+        if (result == GameResult::LOSE)
+        {
+            // sideToMove is checkmated, so opposite side won
+            winner = (board.sideToMove() == Color::WHITE)
+                ? Color::BLACK
+                : Color::WHITE;
+        }
         
         double movesPerSec = (elapsed.count() > 0) ? (ply / elapsed.count()) : 0.0;
 
@@ -735,7 +758,7 @@ void datagen() {
                   << " | speed: " << std::fixed << std::setprecision(2) << movesPerSec << " plies/s" 
                   << std::endl;
 
-        writeGameToBinary("data/selfplay.bin", game);
+        writeGameToBinary("data/selfplay.bin", game, winner);
         game.clear();
         i++;
     }
