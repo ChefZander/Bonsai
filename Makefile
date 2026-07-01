@@ -3,7 +3,8 @@ CXXFLAGS := -O3 -march=native -std=c++20 -flto -ffast-math -funroll-loops
 CC       := $(CXX) $(CXXFLAGS)
 
 BUILD_DIR := build
-TARGET    := $(BUILD_DIR)/bonsai
+EXE      ?= $(BUILD_DIR)/bonsai
+TARGET   := $(EXE)
 SRCS      := bonsai.cpp
 
 # build
