@@ -888,11 +888,11 @@ int main(int argc, char* argv[]) {
             if (movetime == 0) {
                 if (board.sideToMove() == Color::WHITE) {
                     if (wtime > 0) {
-                        movetime = (wtime / 20) + winc;
+                        movetime = (wtime / 10) + winc;
                     }
                 } else {
                     if (btime > 0) {
-                        movetime = (btime / 20) + binc;
+                        movetime = (btime / 10) + binc;
                     }
                 }
             }
