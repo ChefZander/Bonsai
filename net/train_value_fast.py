@@ -73,13 +73,13 @@ class ChessValueNet(nn.Module):
     def __init__(self):
         super(ChessValueNet, self).__init__()
         self.hidden_layer = nn.Linear(768, 16)
-        self.relu = nn.ReLU()
+        self.screlu = nn.SCReLU()
         self.output_layer = nn.Linear(16, 1)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         x = self.hidden_layer(x)
-        x = self.relu(x)
+        x = self.screlu(x)
         x = self.output_layer(x)
         x = self.sigmoid(x)
         return x

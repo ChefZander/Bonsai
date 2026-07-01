@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <queue>
 #include <immintrin.h>
+#include <random>
 #include "include/chess.hpp"
 
 using namespace chess;
@@ -659,10 +660,10 @@ SearchResult monteCarloSearch(int iterationsMax, int timeMax) {
             case GameResult::LOSE: value = 0.0f; break;
 
             // removed * 0.9f, either tune or throw out, is probably bad for eval
-            //case GameResult::NONE: value = evaluate_network_32hl(board); break;
+            case GameResult::NONE: value = evaluate_network_64hl(board); break;
 
             // fallback
-            case GameResult::NONE: value = 1.0 / (1.0 + std::exp(-static_cast<double>(material(board)) / 400.0)); break;
+            //case GameResult::NONE: value = 1.0 / (1.0 + std::exp(-static_cast<double>(material(board)) / 400.0)); break;
         }
 
         backpropagateResult(line, 1.0f - value);
@@ -873,8 +874,13 @@ void writeGameToBinary(const std::string& filename,
 void datagen() {
     datagenActive = true;
     int i = 0;
+    
+    // Set up a proper random engine for weighted sampling
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
     while (true) {
-        // make a random position
+        // Make a random opening position
         board.setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
         int numMoves = 5 + rand() % 5;
 
@@ -891,7 +897,6 @@ void datagen() {
         }
         std::string startingFen = board.getFen();
 
-        // loop monte carlo until game ends
         std::vector<DatagenPosition> game;
         int ply = 0;
 
@@ -905,23 +910,48 @@ void datagen() {
             if (board.isGameOver().second != GameResult::NONE)
                 break;
 
-            if (rand() % 10 == 0) {
-                int index = rand() % moves.size();
-                board.makeMove(moves[index]);
+            // Run the deep MCTS search for every recorded position
+            SearchResult search = monteCarloSearch(1501, 0);
+
+            DatagenPosition pos;
+            pos.fen = board.getFen();
+            pos.policy = search.policy;
+            pos.sideToMove = board.sideToMove();
+            pos.confidence = search.confidence;
+            game.push_back(pos);
+
+            Move moveToPlay;
+
+            // --- TEMPERATURE MECHANISM ---
+            if (ply < 20) { 
+                // T = 1: Weighted random choice based strictly on visit counts
+                int totalVisits = 0;
+                for (const auto& p : search.policy) {
+                    totalVisits += p.second;
+                }
+
+                if (totalVisits > 0) {
+                    std::uniform_int_distribution<> dis(0, totalVisits - 1);
+                    int target = dis(gen);
+                    int currentSum = 0;
+
+                    for (const auto& p : search.policy) {
+                        currentSum += p.second;
+                        if (currentSum > target) {
+                            moveToPlay = p.first;
+                            break;
+                        }
+                    }
+                } else {
+                    moveToPlay = search.bestMove; // Fallback safety
+                }
+            } 
+            else { 
+                // T = 0: Exploit mode. Play the absolute best move found by the search
+                moveToPlay = search.bestMove;
             }
-            else {
-                SearchResult search = monteCarloSearch(1501, 0);
 
-                DatagenPosition pos;
-                pos.fen = board.getFen();
-                pos.policy = search.policy;
-                pos.sideToMove = board.sideToMove();
-                pos.confidence = search.confidence;
-
-                game.push_back(pos);
-
-                board.makeMove(search.bestMove);
-            }
+            board.makeMove(moveToPlay);
             ply++;
         }
 
@@ -929,10 +959,8 @@ void datagen() {
         auto endTime = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed = endTime - startTime;
         
-        // Prevent division by zero if a game ends instantly
         double movesPerSec = (elapsed.count() > 0) ? (ply / elapsed.count()) : 0.0;
 
-        // --- UPDATED PRINT LINE ---
         std::cout << "Game " << i << ": " << startingFen 
                   << " | plies: " << ply 
                   << " | speed: " << std::fixed << std::setprecision(2) << movesPerSec << " plies/s" 
