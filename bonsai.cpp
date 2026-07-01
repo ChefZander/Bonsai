@@ -845,8 +845,9 @@ void writeGameToViriformat(const std::string& filename,
 
         float blended = (0.7f * game[i].confidence) + (0.3f * gameResVal);
 
-        // Linear scale (Should I be using Scaled Sigmoid Here?)
-        int16_t move_score = static_cast<int16_t>((blended - 0.5f) * 2000.0f);
+        // Inverse sigmoid with scale 400 (reverse of 1/(1+exp(-x/400)))
+        float clamped = std::max(1e-6f, std::min(1.0f - 1e-6f, blended));
+        int16_t move_score = static_cast<int16_t>(400.0f * std::log(clamped / (1.0f - clamped)));
 
         file.write(reinterpret_cast<const char*>(&packed_move), sizeof(uint16_t));
         file.write(reinterpret_cast<const char*>(&move_score), sizeof(int16_t));
