@@ -65,6 +65,13 @@ class ChessStreamingDataset(IterableDataset):
                 # Zero Python loops. Direct conversion to PyTorch tensors.
                 yield torch.from_numpy(features_np), torch.from_numpy(targets_np)
 
+class SCReLU(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, x):
+        # Clamps values between 0.0 and 1.0, then squares the result
+        return torch.clamp(x, 0.0, 1.0).pow(2)
 
 # ==========================================
 # 3. Neural Network Architecture
@@ -73,7 +80,7 @@ class ChessValueNet(nn.Module):
     def __init__(self):
         super(ChessValueNet, self).__init__()
         self.hidden_layer = nn.Linear(768, 16)
-        self.screlu = nn.SCReLU()
+        self.screlu = SCReLU()
         self.output_layer = nn.Linear(16, 1)
         self.sigmoid = nn.Sigmoid()
 
@@ -90,10 +97,10 @@ def main():
 
     torch.set_float32_matmul_precision('high')
 
-    bin_filename = "../data/material_1501.bin" 
-    batch_size = 1024 *2 *2 # 8192 (Left untouched)
-    learning_rate = 0.001  # (Left untouched)
-    epochs = 15            # (Left untouched)
+    bin_filename = "../data/iteration1.bin" 
+    batch_size = 1024 *2 *2
+    learning_rate = 0.003
+    epochs = 5
 
     # Pass the batch size directly to the dataset
     dataset = ChessStreamingDataset(bin_filename, batch_size=batch_size, buffer_size=250000)
@@ -120,15 +127,15 @@ def main():
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     # Calculate your exact total steps
-    total_steps = 330000 // batch_size
+    #total_steps = 330000 // batch_size
 
     # T_max is the total number of steps to reach eta_min
     # eta_min is the lowest you want the LR to go (e.g., 1e-5 or 1e-6)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer, 
-        T_max=total_steps, 
-        eta_min=1e-5
-    )
+    #scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    #    optimizer, 
+    #    T_max=total_steps, 
+    #    eta_min=1e-5
+    #)
 
     model.train()
     print("Beginning training loop...")
@@ -149,7 +156,7 @@ def main():
                         loss.backward()
                         
                         optimizer.step()
-                        scheduler.step()
+                        #scheduler.step()
 
                         progress_bar.update(1)
                         if batch_idx % 64 == 0:
@@ -167,7 +174,7 @@ def main():
 
     progress_bar.close()
 
-    model_save_path = "16hl1.pt"
+    model_save_path = "iteration1.pt"
     orig_model = model._orig_mod if hasattr(model, "_orig_mod") else model
     torch.save(orig_model.state_dict(), model_save_path)
     print(f"Training completed. Network saved safely to {model_save_path}")
