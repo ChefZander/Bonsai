@@ -1,12 +1,13 @@
 CXX      := g++
 CXXFLAGS := -O3 -march=native -std=c++20 -flto -ffast-math -funroll-loops
+CC       := $(CXX) $(CXXFLAGS)
 
 BUILD_DIR := build
 TARGET    := $(BUILD_DIR)/bonsai
 SRCS      := bonsai.cpp
 
 # build
-all: $(TARGET)
+default: $(TARGET)
 
 $(TARGET): $(SRCS)
 	@mkdir -p $(BUILD_DIR)
