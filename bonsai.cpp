@@ -24,6 +24,8 @@ struct SearchResult {
     Move bestMove;
     float confidence;
 
+    int nps;
+
     // policy target
     std::vector<std::pair<Move, int>> policy;
 };
@@ -500,6 +502,9 @@ SearchResult monteCarloSearch(int iterationsMax, int timeMax) {
 
     SearchResult result;
     result.bestMove = tree[bestChild].action;
+
+    result.nps = static_cast<int>(iterationsCompleted / safeElapsed);
+    
     result.confidence = 1.0f - (static_cast<float>(tree[0].value) / tree[0].visits);
 
     result.policy.reserve(tree[0].num_children);
@@ -802,11 +807,10 @@ void handlePosition(std::istringstream& ss) {
 
 void benchAndQuit() {
     board.setFen("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
-    SearchResult result = monteCarloSearch(10000, 0);
+    SearchResult result = monteCarloSearch(100000, 0);
     int bench = result.policy[0].second + result.policy[1].second;
-    int bench2 = result.policy[2].second + result.policy[3].second;
     std::cout << "Bench: " << bench << std::endl;
-    std::cout << bench << " nodes " << bench2 << " nps" << std::endl;
+    std::cout << bench << " nodes " << result.nps << " nps" << std::endl;
     exit(0);
 }
 
@@ -827,6 +831,7 @@ int main(int argc, char* argv[]) {
         if (command == "uci") {
             std::cout << "id name Bonsai" << std::endl;
             std::cout << "id author Zander" << std::endl;
+            std::cout << "option name Theads type spin default 1 min 1 max 1" << std::endl;
             std::cout << "option name Hash type spin default " << DEFAULT_HASH_MIB << " min 1 max 65536" << std::endl;
             std::cout << "uciok" << std::endl;
         } else if (command == "debug") {
