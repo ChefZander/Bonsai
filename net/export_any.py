@@ -77,4 +77,4 @@ const int32_t OUTPUT_BIAS = {b2_int[0]};
 
 if __name__ == "__main__":
     # You can change scale=1 if you strictly want raw non-scaled rounding
-    export_to_hpp(model_path="iteration1.pt", output_path="iteration1.hpp", scale=64, hidden_layer=16)
+    export_to_hpp(model_path="net2.pt", output_path="net2.hpp", scale=64, hidden_layer=16)
