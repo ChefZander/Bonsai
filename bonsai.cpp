@@ -19,6 +19,7 @@ struct Node
     int firstchild; int num_children;
     int visits = 0;
     float value = 0;
+    float policy;
 };
 struct SearchResult {
     Move bestMove;
@@ -132,27 +133,50 @@ void expandNode(int parent) {
     Movelist moves;
     movegen::legalmoves(moves, board);
 
-    // appending at the end yields (idx + 1) as next index, which is size
+    if (moves.empty()) return;
+
+    constexpr int pieceValues[] = {100, 300, 300, 500, 900, 10000};
+
+    auto getMvvLvaScore = [&](const Move& m) -> int {
+        bool isEnPassant = (m.typeOf() == Move::ENPASSANT);
+        Piece victimPiece = board.at(m.to());
+
+        if (victimPiece == Piece::NONE && !isEnPassant) {
+            return 0;
+        }
+
+        PieceType attacker = board.at(m.from()).type();
+        PieceType victim = isEnPassant ? PieceType::PAWN : victimPiece.type();
+
+        return (pieceValues[static_cast<int>(victim)] * 10) 
+               - pieceValues[static_cast<int>(attacker)] 
+               + 100000;
+    };
+
+    std::sort(moves.begin(), moves.end(), [&](const Move& a, const Move& b) {
+        return getMvvLvaScore(a) > getMvvLvaScore(b);
+    });
+
     tree[parent].firstchild = tree.size();
     tree[parent].num_children = moves.size();
 
-    for(Move m : moves) {
+    std::vector<double> policyWeights(moves.size());
+    double totalWeight = 0.0;
+
+    for (size_t i = 0; i < moves.size(); ++i) {
+        policyWeights[i] = 1.0 / (static_cast<double>(i) + 1.0);
+        totalWeight += policyWeights[i];
+    }
+
+    for (size_t i = 0; i < moves.size(); ++i) {
         Node child = Node();
-        child.action = m;
+        child.action = moves[i];
+        child.policy = policyWeights[i] / totalWeight;
         tree.push_back(child);
     }
 }
 
 const float C_PUCT = 1.41f;
-
-// Fast sqrt approximation using SSE-friendly integer math
-// Good enough for MCTS selection; avoids expensive std::sqrt call in hot path
-inline float fast_sqrt(float x) {
-    if (x <= 0.0f) return 0.0f;
-    // Use hardware sqrt hint; compilers will emit sqrtss on x86
-    float r = sqrtf(x);
-    return r;
-}
 
 inline float fast_sqrt_hint(float x) {
     if (x <= 0.0f) return 0.0f;
@@ -188,7 +212,8 @@ inline float PUCT(int node, int parent) {
     float N_parent = static_cast<float>(parent_node.visits);
     if (N_parent < 1.0f) N_parent = 1.0f;
 
-    float p = fast_sqrt_hint(N_parent) / (static_cast<float>(child.visits) + 1.0f);
+    // Inject child.policy here to scale the exploration factor
+    float p = child.policy * fast_sqrt_hint(N_parent) / (static_cast<float>(child.visits) + 1.0f);
 
     return q + C_PUCT * p;
 }
@@ -432,7 +457,11 @@ SearchResult monteCarloSearch(int iterationsMax, int timeMax) {
             //case GameResult::NONE: value = evaluate_network_16hl(board); break;
 
             // fallback
-            case GameResult::NONE: value = 1.0 / (1.0 + std::exp(-static_cast<double>(material(board)) / 400.0)); break;
+            case GameResult::NONE: {
+                float white_persp = 1.0 / (1.0 + std::exp(-static_cast<double>(material(board)) / 400.0));
+                value = (board.sideToMove() == Color::WHITE) ? white_persp : (1.0f - white_persp);
+                break;
+            }
         }
 
         backpropagateResult(line, 1.0f - value);
