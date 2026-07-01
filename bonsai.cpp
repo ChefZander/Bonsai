@@ -19,7 +19,6 @@ struct Node
     int firstchild; int num_children;
     int visits = 0;
     float value = 0;
-    bool captureMove;
 };
 struct SearchResult {
     Move bestMove;
@@ -48,13 +47,13 @@ inline size_t computeHashLimitNodes(int mib) {
 // Fraction of total nodes pruneTree() retains per call (~half).
 const float PRUNE_KEEP_FRACTION = 0.5f;
 
-#include "net/64hl1.hpp"
+//#include "net/iteration1.hpp"
 
 float sigmoid(float x) {
     return 1.0f / (1.0f + std::exp(-x));
 }
 
-inline float evaluate_network_32hl(const chess::Board& b) {
+/*inline float evaluate_network_32hl(const chess::Board& b) {
     int32_t acc[32];
     for (int i = 0; i < 32; ++i) {
         acc[i] = HIDDEN_BIASES[i];
@@ -116,7 +115,7 @@ inline float evaluate_network_32hl(const chess::Board& b) {
 
     float raw_output_float = static_cast<float>(output_accumulation) / SCALE_FACTOR_SQ;
     return sigmoid(raw_output_float);
-}
+}*/
 
 // obsolete?
 inline bool isNodeTerminal(GameResult result) {
@@ -138,7 +137,6 @@ void expandNode(int parent) {
     for(Move m : moves) {
         Node child = Node();
         child.action = m;
-        child.captureMove = (board.at(m.to()) != Piece::NONE);
         tree.push_back(child);
     }
 }
@@ -761,7 +759,7 @@ void datagen() {
                   << " | total plies: " << allPlies
                   << std::endl;
 
-        writeGameToBinary("data/selfplay.bin", game, winner);
+        writeGameToBinary("data/iteration1.bin", game, winner);
         game.clear();
         i++;
     }
